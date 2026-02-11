@@ -10,8 +10,10 @@ import soundfile as sf
 import os
 import sys
 import logging
-from typing import Tuple, Dict, Any, Generator
+from typing import Tuple, Dict, Any, Generator, List, Optional
 import json
+from datetime import datetime
+from pathlib import Path
 
 # 添加项目根目录到Python路径
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -22,6 +24,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
+# ==================== 原有fixture（1-3周）保持不变 ====================
 
 @pytest.fixture(scope="session")
 def test_data_dir():
@@ -64,7 +67,6 @@ def short_audio():
     audio = np.zeros_like(t)
 
     # 第一个说话人（0-2秒）
-    # 将浮点数计算转换为整数
     first_speaker_end = 2 * sr  # 2秒 * 采样率
     audio[:first_speaker_end] = 0.1 * np.sin(2 * np.pi * 200 * t[:first_speaker_end])
 
@@ -218,9 +220,6 @@ def long_audio_file(long_audio, test_data_dir):
         sf.write(filepath, audio, sr)
     
     yield filepath
-    
-    # 不在测试后立即删除，因为可能被多个测试使用
-    # 最终会被test_data_dir清理
 
 
 @pytest.fixture
@@ -243,7 +242,6 @@ def very_long_audio_file(test_data_dir):
     duration = 3600  # 1小时
     
     # 为了测试效率，我们可以创建实际较短但有长时间标记的音频
-    # 或者只创建标记文件
     logging.info(f"创建超长测试音频: {filepath}")
     
     # 简单生成10秒音频（实际测试时可以调整）
@@ -425,8 +423,335 @@ def mock_whisper_result():
         "language": "zh"
     }
 
+# ==================== 第四周新增fixture ====================
 
-# 测试配置
+@pytest.fixture
+def sample_meeting_text():
+    """示例会议文本（第四周）"""
+    return """
+    SPEAKER_00: 大家好，我们开始今天的项目进度会议。
+    SPEAKER_01: 我汇报前端进度，已完成登录模块和用户界面。
+    SPEAKER_02: 后端API开发完成80%，剩余支付接口需要优化。
+    SPEAKER_00: 很好。张三，你负责前端测试，本周五前完成。
+    SPEAKER_01: 好的，我周五前完成前端测试。
+    SPEAKER_00: 李四，你处理后端性能问题，下周三前解决。
+    SPEAKER_02: 明白，下周三前完成后端优化。
+    SPEAKER_00: 会议结束，大家按照计划执行。
+    """
+
+
+@pytest.fixture
+def sample_transcription_for_insights():
+    """为会议洞察准备的转录结果样本（第四周）"""
+    try:
+        from src.audio_processing.models.transcription_result import (
+            SpeakerSegment, 
+            TranscriptionResult
+        )
+        
+        # 创建更丰富的说话人分段，包含任务信息
+        segments = [
+            SpeakerSegment(
+                speaker="SPEAKER_00",
+                start=0.0,
+                end=8.0,
+                text="大家好，我们开始今天的项目进度会议。",
+                language="zh"
+            ),
+            SpeakerSegment(
+                speaker="SPEAKER_01",
+                start=8.0,
+                end=20.0,
+                text="我汇报前端进度，已完成登录模块和用户界面。",
+                language="zh"
+            ),
+            SpeakerSegment(
+                speaker="SPEAKER_02",
+                start=20.0,
+                end=35.0,
+                text="后端API开发完成80%，剩余支付接口需要优化。",
+                language="zh"
+            ),
+            SpeakerSegment(
+                speaker="SPEAKER_00",
+                start=35.0,
+                end=45.0,
+                text="很好。张三，你负责前端测试，本周五前完成。",
+                language="zh"
+            ),
+            SpeakerSegment(
+                speaker="SPEAKER_01",
+                start=45.0,
+                end=50.0,
+                text="好的，我周五前完成前端测试。",
+                language="zh"
+            ),
+            SpeakerSegment(
+                speaker="SPEAKER_00",
+                start=50.0,
+                end=60.0,
+                text="李四，你处理后端性能问题，下周三前解决。",
+                language="zh"
+            ),
+            SpeakerSegment(
+                speaker="SPEAKER_02",
+                start=60.0,
+                end=65.0,
+                text="明白，下周三前完成后端优化。",
+                language="zh"
+            )
+        ]
+        
+        # 创建完整转录结果
+        full_text = " ".join([seg.text for seg in segments])
+        
+        result = TranscriptionResult(
+            id="insights_test_001",
+            full_text=full_text,
+            segments=segments,
+            speaker_segments=segments,
+            language="zh",
+            duration=1800.0,  # 30分钟会议
+            processing_time=150.0,
+            word_count=len(full_text),
+            metadata={
+                "num_speakers_detected": 3,
+                "test_purpose": "meeting_insights"
+            }
+        )
+        
+        return result
+        
+    except ImportError as e:
+        pytest.skip(f"无法导入转录结果模型: {e}")
+
+
+@pytest.fixture
+def mock_llm_client():
+    """模拟LLM客户端（第四周）"""
+    from unittest.mock import Mock
+    
+    client = Mock()
+    client.generate.return_value = """
+    {
+        "summary": "会议讨论了项目进度，前端开发进展顺利，后端需要性能优化。明确了任务分工和截止时间。",
+        "executive_summary": "项目按计划推进，需要重点关注后端性能优化。",
+        "key_topics": [
+            {
+                "name": "项目进度",
+                "keywords": ["前端", "后端", "完成率"],
+                "confidence": 0.9
+            },
+            {
+                "name": "任务分配",
+                "keywords": ["负责", "截止时间", "测试"],
+                "confidence": 0.85
+            }
+        ],
+        "decisions": ["本周五完成前端测试", "下周三完成后端优化"],
+        "sentiment_overall": 0.7
+    }
+    """
+    
+    client.generate_json.return_value = {
+        "summary": "会议讨论了项目进度，前端开发进展顺利，后端需要性能优化。明确了任务分工和截止时间。",
+        "executive_summary": "项目按计划推进，需要重点关注后端性能优化。",
+        "key_topics": [
+            {
+                "name": "项目进度",
+                "keywords": ["前端", "后端", "完成率"],
+                "confidence": 0.9
+            },
+            {
+                "name": "任务分配", 
+                "keywords": ["负责", "截止时间", "测试"],
+                "confidence": 0.85
+            }
+        ],
+        "decisions": ["本周五完成前端测试", "下周三完成后端优化"],
+        "sentiment_overall": 0.7
+    }
+    
+    return client
+
+
+@pytest.fixture
+def nlp_test_config():
+    """NLP测试配置（第四周）"""
+    return {
+        'llm': {
+            'provider': 'openai',
+            'api_key': 'test_key',
+            'model': 'gpt-3.5-turbo'
+        },
+        'text_processing': {
+            'enable_punctuation_restoration': True,
+            'min_sentence_length': 3
+        },
+        'task_extraction': {
+            'use_llm_for_tasks': False,
+            'min_task_confidence': 0.6
+        },
+        'summarization': {
+            'use_llm_for_topics': True
+        }
+    }
+
+
+@pytest.fixture
+def meeting_insights_sample():
+    """创建会议洞察样本数据（第四周）"""
+    try:
+        from meeting_insights.models import MeetingInsights, ActionItem, KeyTopic, Priority, Status
+        
+        # 创建行动项
+        action_items = [
+            ActionItem(
+                description="完成前端用户界面测试",
+                assignee="张三",
+                assignee_name="张三",
+                due_date=datetime(2024, 3, 22),
+                priority=Priority.HIGH,
+                status=Status.IN_PROGRESS,
+                confidence=0.85,
+                source_segment_ids=["seg_3", "seg_4"]
+            ),
+            ActionItem(
+                description="优化后端API性能",
+                assignee="李四",
+                assignee_name="李四",
+                due_date=datetime(2024, 3, 27),
+                priority=Priority.MEDIUM,
+                status=Status.PENDING,
+                confidence=0.75,
+                source_segment_ids=["seg_5", "seg_6"]
+            )
+        ]
+        
+        # 创建关键议题
+        key_topics = [
+            KeyTopic(
+                id="topic_1",
+                name="项目进度",
+                confidence=0.9,
+                keywords=["里程碑", "时间表", "完成率"],
+                speaker_involved=["SPEAKER_00", "SPEAKER_01"],
+                start_time=0.0,
+                end_time=120.5
+            ),
+            KeyTopic(
+                id="topic_2",
+                name="技术挑战",
+                confidence=0.8,
+                keywords=["性能优化", "兼容性", "测试"],
+                speaker_involved=["SPEAKER_01", "SPEAKER_02"],
+                start_time=120.5,
+                end_time=300.0
+            )
+        ]
+        
+        # 创建会议洞察
+        insights = MeetingInsights(
+            meeting_id="test_meeting_20240320",
+            transcription_id="trans_001",
+            summary="本次会议讨论了项目当前进度和面临的技术挑战。前端开发进展顺利，后端需要性能优化。明确了下一步的工作任务和责任人。",
+            executive_summary="项目按计划推进，需重点关注后端性能问题。",
+            key_topics=key_topics,
+            decisions=["采用新的缓存策略优化后端性能", "增加前端自动化测试覆盖"],
+            action_items=action_items,
+            speaker_contributions={
+                "SPEAKER_00": 40.5,
+                "SPEAKER_01": 35.2,
+                "SPEAKER_02": 24.3
+            },
+            sentiment_overall=0.7,
+            meeting_duration=1800.0,  # 30分钟
+            word_count=1250
+        )
+        
+        return insights
+        
+    except ImportError as e:
+        pytest.skip(f"无法导入会议洞察模型: {e}")
+
+
+@pytest.fixture
+def text_postprocessor():
+    """创建文本后处理器实例（第四周）"""
+    try:
+        from src.nlp_processing.text_postprocessor import TextPostProcessor
+        return TextPostProcessor()
+    except ImportError as e:
+        pytest.skip(f"无法导入文本后处理器: {e}")
+
+
+@pytest.fixture
+def sample_transcription_data():
+    """示例转录数据（第四周API测试用）"""
+    return {
+        "id": "test_trans_001",
+        "full_text": "会议讨论了项目进展。张三负责前端开发，周五前完成。李四处理后端优化。",
+        "segments": [
+            {
+                "speaker": "SPEAKER_00",
+                "text": "开始会议",
+                "start": 0.0,
+                "end": 5.0
+            }
+        ],
+        "speaker_segments": [
+            {
+                "speaker": "SPEAKER_00",
+                "text": "开始会议",
+                "start": 0.0,
+                "end": 5.0
+            }
+        ],
+        "language": "zh",
+        "duration": 1800.0,
+        "processing_time": 120.0,
+        "word_count": 100,
+        "metadata": {
+            "num_speakers_detected": 1
+        }
+    }
+
+
+@pytest.fixture
+def report_generator(temp_output_dir):
+    """创建报告生成器实例（第四周）"""
+    try:
+        from visualization.report_generator import ReportGenerator
+        return ReportGenerator(output_dir=temp_output_dir)
+    except ImportError as e:
+        pytest.skip(f"无法导入报告生成器: {e}")
+
+
+@pytest.fixture
+def temp_output_dir(tmp_path):
+    """临时输出目录（第四周）"""
+    output_dir = tmp_path / "test_output"
+    output_dir.mkdir(exist_ok=True)
+    return str(output_dir)
+
+
+@pytest.fixture
+def nlp_settings():
+    """NLP设置实例（第四周）"""
+    try:
+        from config.nlp_settings import NLPSettings
+        return NLPSettings(
+            llm_provider="openai",
+            llm_model="gpt-3.5-turbo",
+            llm_temperature=0.3,
+            enable_punctuation_restoration=True
+        )
+    except ImportError as e:
+        pytest.skip(f"无法导入NLP设置: {e}")
+
+
+# ==================== 测试标记和配置 ====================
+
 def pytest_addoption(parser):
     """添加测试命令行选项"""
     parser.addoption(
@@ -439,37 +764,37 @@ def pytest_addoption(parser):
         action="store_true",
         help="运行性能测试"
     )
+    parser.addoption(
+        "--week4-only",
+        action="store_true",
+        help="只运行第四周新增测试"
+    )
+    parser.addoption(
+        "--skip-llm-tests", 
+        action="store_true",
+        help="跳过需要LLM的测试"
+    )
+    parser.addoption(
+        "--run-all-tests",
+        action="store_true",
+        help="运行所有测试（包括慢测试）"
+    )
 
 
 def pytest_configure(config):
     """配置pytest"""
-    # 设置跳过标记
+    # 设置环境变量
     if config.getoption("--skip-long-tests"):
         os.environ['SKIP_LONG_TESTS'] = '1'
         os.environ['SKIP_VERY_LONG_TESTS'] = '1'
     
     if config.getoption("--run-performance-tests"):
         os.environ['RUN_PERFORMANCE_TESTS'] = '1'
-
-
-def pytest_collection_modifyitems(config, items):
-    """根据命令行选项修改测试项"""
-    skip_long = pytest.mark.skip(reason="跳过长时间测试")
-    skip_performance = pytest.mark.skip(reason="跳过性能测试")
     
-    for item in items:
-        # 跳过长时间测试
-        if "long_test" in item.keywords and config.getoption("--skip-long-tests"):
-            item.add_marker(skip_long)
-        
-        # 跳过性能测试（除非明确指定）
-        if "performance_test" in item.keywords and not config.getoption("--run-performance-tests"):
-            item.add_marker(skip_performance)
-
-
-# 自定义测试标记
-def pytest_configure(config):
-    """注册自定义标记"""
+    if config.getoption("--skip-llm-tests"):
+        os.environ['SKIP_LLM_TESTS'] = '1'
+    
+    # 注册自定义标记
     config.addinivalue_line(
         "markers", "long_test: 标记为长时间运行的测试"
     )
@@ -482,6 +807,72 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "api_test: 标记为API测试"
     )
+    config.addinivalue_line(
+        "markers", "llm_test: 标记为需要LLM的测试（第四周）"
+    )
+    config.addinivalue_line(
+        "markers", "fourth_week: 标记为第四周新增测试"
+    )
+    config.addinivalue_line(
+        "markers", "insights_test: 标记为会议洞察测试（第四周）"
+    )
+    config.addinivalue_line(
+        "markers", "nlp_test: 标记为NLP处理测试（第四周）"
+    )
+    config.addinivalue_line(
+        "markers", "visualization_test: 标记为可视化测试（第四周）"
+    )
+    config.addinivalue_line(
+        "markers", "async_api_test: 标记为异步API测试（第四周）"
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    """根据命令行选项修改测试项"""
+    skip_long = pytest.mark.skip(reason="跳过长时间测试")
+    skip_performance = pytest.mark.skip(reason="跳过性能测试")
+    skip_llm = pytest.mark.skip(reason="跳过需要LLM的测试")
+    
+    for item in items:
+        # 跳过长时间测试（除非指定运行所有）
+        if ("long_test" in item.keywords or "performance_test" in item.keywords) and \
+           not config.getoption("--run-all-tests"):
+            if config.getoption("--skip-long-tests"):
+                item.add_marker(skip_long)
+        
+        # 跳过性能测试（除非明确指定）
+        if "performance_test" in item.keywords and not config.getoption("--run-performance-tests"):
+            item.add_marker(skip_performance)
+        
+        # 跳过LLM测试（如果指定）
+        if "llm_test" in item.keywords and config.getoption("--skip-llm-tests"):
+            item.add_marker(skip_llm)
+        
+        # 只运行第四周测试模式
+        if config.getoption("--week4-only") and "fourth_week" not in item.keywords:
+            # 检查是否属于第四周测试路径
+            test_path = str(item.fspath)
+            fourth_week_paths = ['nlp_processing', 'meeting_insights', 'visualization', 'async_api', 'examples']
+            if not any(path in test_path for path in fourth_week_paths):
+                item.add_marker(pytest.mark.skip(reason="非第四周测试"))
+        
+        # 自动标记第四周测试
+        test_path = str(item.fspath)
+        if any(keyword in test_path.lower() for keyword in [
+            'nlp_processing', 'meeting_insights', 'visualization', 
+            'async_api', 'examples', 'insights', 'nlp', 'visual'
+        ]):
+            item.add_marker(pytest.mark.fourth_week)
+            
+            # 进一步分类标记
+            if 'nlp_processing' in test_path:
+                item.add_marker(pytest.mark.nlp_test)
+            elif 'meeting_insights' in test_path:
+                item.add_marker(pytest.mark.insights_test)
+            elif 'visualization' in test_path:
+                item.add_marker(pytest.mark.visualization_test)
+            elif 'async_api' in test_path:
+                item.add_marker(pytest.mark.async_api_test)
 
 
 @pytest.fixture(scope="session")
@@ -504,6 +895,12 @@ def test_config():
             "default_overlap": 5,           # 5秒
             "test_chunk_duration": 120,     # 2分钟（测试用）
             "test_overlap": 2,              # 2秒（测试用）
+        },
+        "nlp_testing": {  # 第四周新增
+            "test_text_length": 500,  # 测试文本长度
+            "min_summary_length": 50,  # 最小摘要长度
+            "task_extraction_threshold": 0.6,  # 任务提取置信度阈值
+            "max_tasks_per_meeting": 10  # 每次会议最大任务数
         }
     }
 
@@ -522,7 +919,7 @@ def cleanup_test_files():
     # 清理旧的临时目录
     temp_dir = tempfile.gettempdir()
     for item in os.listdir(temp_dir):
-        if item.startswith("test_audio_data_") or item.startswith("processed_"):
+        if item.startswith(("test_audio_data_", "processed_", "meeting_reports_", "test_output_")):
             item_path = os.path.join(temp_dir, item)
             try:
                 # 检查是否超过1小时
@@ -531,5 +928,125 @@ def cleanup_test_files():
                         shutil.rmtree(item_path)
                     else:
                         os.remove(item_path)
-            except:
-                pass
+            except Exception as e:
+                logging.debug(f"清理文件失败 {item_path}: {e}")
+
+
+# ==================== 会话级别的环境设置 ====================
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_session_environment():
+    """设置会话级别的测试环境"""
+    # 创建必要的测试目录结构
+    test_dirs = [
+        Path("tests") / "temp",
+        Path("tests") / "output",
+        Path("tests") / "logs",
+        Path("tests") / "reports",  # 第四周报告输出
+    ]
+    
+    for dir_path in test_dirs:
+        dir_path.mkdir(exist_ok=True, parents=True)
+    
+    # 设置测试模式
+    original_test_mode = os.environ.get('TEST_MODE')
+    os.environ['TEST_MODE'] = 'true'
+    
+    yield
+    
+    # 恢复环境
+    if original_test_mode:
+        os.environ['TEST_MODE'] = original_test_mode
+    else:
+        os.environ.pop('TEST_MODE', None)
+    
+    logging.info("测试会话结束")
+
+
+# ==================== 测试助手函数 ====================
+
+@pytest.fixture
+def create_test_meeting_text():
+    """创建测试会议文本的助手函数"""
+    def _create_meeting_text(num_speakers=3, num_turns=10):
+        """生成模拟会议文本
+        
+        Args:
+            num_speakers: 说话人数量
+            num_turns: 对话轮次
+            
+        Returns:
+            str: 格式化的会议文本
+        """
+        speakers = [f"SPEAKER_{i:02d}" for i in range(num_speakers)]
+        
+        # 会议开场
+        lines = [f"{speakers[0]}: 大家好，我们开始今天的会议。"]
+        
+        # 生成对话
+        import random
+        topics = ["项目进度", "技术问题", "任务分配", "时间安排", "资源需求"]
+        
+        for turn in range(1, num_turns):
+            speaker = speakers[turn % num_speakers]
+            topic = random.choice(topics)
+            
+            if "项目进度" in topic:
+                text = f"我汇报一下{topic}，目前完成{random.randint(50, 90)}%。"
+            elif "技术问题" in topic:
+                text = f"遇到一个{topic}，需要{random.choice(['张三', '李四', '王五'])}协助解决。"
+            elif "任务分配" in topic:
+                text = f"{random.choice(['张三', '李四'])}负责这个任务，{random.choice(['本周五', '下周三'])}前完成。"
+            elif "时间安排" in topic:
+                text = f"我们需要调整{topic}，推迟到{random.choice(['下周', '下个月'])}。"
+            else:
+                text = f"关于{topic}，需要增加{random.choice(['人力', '预算', '设备'])}资源。"
+            
+            lines.append(f"{speaker}: {text}")
+        
+        # 会议结束
+        lines.append(f"{speakers[0]}: 好的，会议结束。大家按照讨论的执行。")
+        
+        return "\n".join(lines)
+    
+    return _create_meeting_text
+
+
+@pytest.fixture
+def assert_insights_structure():
+    """验证会议洞察结构的助手函数"""
+    def _assert_structure(insights):
+        """验证MeetingInsights对象的结构完整性
+        
+        Args:
+            insights: MeetingInsights对象
+            
+        Raises:
+            AssertionError: 如果结构不完整
+        """
+        assert hasattr(insights, 'meeting_id')
+        assert hasattr(insights, 'transcription_id')
+        assert hasattr(insights, 'summary')
+        assert hasattr(insights, 'key_topics')
+        assert hasattr(insights, 'action_items')
+        assert hasattr(insights, 'meeting_duration')
+        assert hasattr(insights, 'word_count')
+        
+        # 验证关键属性不为空
+        assert insights.meeting_id
+        assert insights.transcription_id
+        assert insights.summary
+        assert isinstance(insights.summary, str) and len(insights.summary) > 0
+        assert isinstance(insights.key_topics, list)
+        assert isinstance(insights.action_items, list)
+        assert insights.meeting_duration > 0
+        assert insights.word_count >= 0
+        
+        # 验证speaker_contributions
+        if insights.speaker_contributions:
+            total = sum(insights.speaker_contributions.values())
+            assert abs(total - 100.0) < 0.01  # 允许1%误差
+        
+        return True
+    
+    return _assert_structure

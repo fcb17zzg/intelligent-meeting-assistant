@@ -1,0 +1,32 @@
+[run]
+source = 
+    src/
+    meeting_insights/
+    visualization/
+    config/
+
+omit = 
+    */tests/*
+    */__pycache__/*
+    */test_*.py
+    */setup.py
+    */__init__.py
+
+[report]
+exclude_lines = 
+    pragma: no cover
+    def __repr__
+    if self.debug
+    raise AssertionError
+    raise NotImplementedError
+    if 0:
+    if __name__ == .__main__.:
+    @abstractmethod
+    
+    # 忽略类型提示
+    ^\s*# type:.*$
+    ^\s*from typing import.*$
+
+[html]
+directory = coverage_html_report
+title = 智能会议助手测试覆盖率报告

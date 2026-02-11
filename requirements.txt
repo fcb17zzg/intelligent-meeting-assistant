@@ -33,3 +33,24 @@ pytest-asyncio>=0.21.0
 black>=23.0.0
 flake8>=6.0.0
 mypy>=1.0.0
+
+# NLP处理
+jieba>=0.42.1
+dateparser>=1.2.0
+keybert>=0.8.0
+transformers>=4.40.0
+
+# 大模型
+openai>=1.30.0
+qianfan>=0.3.0  # 百度千帆
+dashscope>=1.14.0  # 阿里通义千问
+
+# 可视化
+matplotlib>=3.7.0
+plotly>=5.22.0
+jinja2>=3.1.0
+pandas>=2.0.0
+
+# 其他
+pydantic>=2.0.0
+python-dateutil>=2.8.0

@@ -149,6 +149,41 @@ def transcribe_meeting(
         output_format=output_format
     )
 
+# 在现有文件中添加
+
+def generate_meeting_insights(
+    transcription_result: 'TranscriptionResult',
+    meeting_id: Optional[str] = None,
+    config: Optional[Dict] = None
+) -> MeetingInsights:
+    """
+    生成会议洞察
+    
+    Args:
+        transcription_result: 转录结果对象
+        meeting_id: 会议ID，如未提供则自动生成
+        config: NLP处理配置
+    
+    Returns:
+        MeetingInsights对象
+    """
+    from meeting_insights.processor import MeetingInsightsProcessor
+    from meeting_insights.models import MeetingInsights
+    
+    if not meeting_id:
+        meeting_id = f"meeting_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    
+    # 加载配置
+    if config is None:
+        from config.nlp_settings import NLPSettings
+        config = NLPSettings().dict()
+    
+    # 创建处理器
+    processor = MeetingInsightsProcessor(config)
+    
+    # 处理并返回结果
+    return processor.process(transcription_result, meeting_id)
+
 
 # 使用示例
 if __name__ == "__main__":
