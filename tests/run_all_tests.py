@@ -13,13 +13,18 @@ def setup_test_environment():
     project_root = Path(__file__).parent.parent
     sys.path.insert(0, str(project_root))
     
+    # 添加更多路径
+    src_path = project_root / "src"
+    sys.path.insert(0, str(src_path))
+    
     # 设置环境变量
     os.environ['TEST_MODE'] = 'true'
-    os.environ['PYTHONPATH'] = str(project_root)
+    os.environ['PYTHONPATH'] = str(project_root) + os.pathsep + str(src_path)
     
     print("=" * 60)
     print("🚀 智能会议助手 - 完整测试套件")
     print("=" * 60)
+    print(f"Python路径: {sys.path[0]}")
     
     return True
 
@@ -43,42 +48,40 @@ def run_complete_test_suite(test_pattern=None, verbose=False, coverage=False,
         ])
     
     if skip_slow:
-        test_args.append('--skip-slow')
+        test_args.append('-m')
+        test_args.append('not slow')
     
     if run_gpu:
-        test_args.append('--run-gpu')
+        test_args.append('-m')
+        test_args.append('gpu')
     
     if week4_only:
-        # 只运行第四周测试
-        test_args.extend([
-            'tests/nlp_processing',
-            'tests/meeting_insights',
-            'tests/visualization', 
-            'tests/async_api',
-            'tests/examples',
-            'tests/test_config_nlp.py'
-        ])
+        # 只运行第四周测试 - 修正为实际目录结构
+        test_dirs = [
+            'tests/test_nlp_processing',        # 第四周 NLP
+            'tests/test_meeting_insights',      # 第四周 会议洞察
+            'tests/test_visualization',         # 第四周 可视化
+            'tests/test_async_api_extended',    # 第四周 异步API
+            'tests/test_examples',              # 第四周 示例
+            'tests/test_config_nlp.py'          # 第四周 配置测试
+        ]
+        test_args.extend(test_dirs)
         print("📅 测试范围: 第四周新增功能")
     elif test_pattern:
         # 运行特定测试模式
         test_args.append(test_pattern)
         print(f"🎯 测试模式: {test_pattern}")
     else:
-        # 运行所有测试
+        # 运行所有测试 - 修正为实际目录结构
         test_dirs = [
-            'tests/audio_processing',      # 第1-3周
-            'tests/compatibility',         # 兼容性测试
-            'tests/nlp_processing',        # 第四周
-            'tests/meeting_insights',      # 第四周
-            'tests/visualization',         # 第四周
-            'tests/async_api',             # 第四周
-            'tests/examples'               # 第四周
-            'tests/nlp_processing',
-            'tests/meeting_insights', 
-            'tests/visualization',
-            'tests/async_api',
-            'tests/examples',
-            'tests/test_config_nlp.py'
+            'tests/audio_processing',           # 第1-3周
+            'tests/compatibility',              # 兼容性测试
+            'tests/test_nlp_processing',        # 第四周
+            'tests/test_meeting_insights',      # 第四周
+            'tests/test_visualization',         # 第四周
+            'tests/test_async_api_extended',    # 第四周
+            'tests/test_examples',              # 第四周
+            'tests/test_config_nlp.py'          # 第四周
         ]
         test_args.extend(test_dirs)
         print("📅 测试范围: 所有功能 (第1-4周)")
@@ -96,63 +99,107 @@ def list_all_tests():
     print("\n📋 完整测试清单:")
     print("=" * 50)
     
+    tests_dir = Path(__file__).parent
+    
+    # 根据实际目录结构定义测试类别
     test_categories = {
-        "🎵 音频处理 (第1-3周)": [
-            "test_audio_preprocessing.py - 音频预处理",
-            "test_audio_utils.py - 音频工具",
-            "test_basic.py - 基础功能",
-            "test_diarization.py - 说话人分离",
-            "test_long_audio.py - 长音频处理",
-            "test_meeting_transcriber.py - 会议转录器",
-            "test_whisper_basic.py - Whisper基础",
-            "test_whisper_integration.py - Whisper集成"
-        ],
-        "🔧 兼容性测试": [
-            "check_pytorch_compatibility.py - PyTorch兼容性",
-            "fix_numpy_compatibility.py - NumPy兼容性",
-            "fix_pyannote_now.py - Pyannote修复"
-        ],
-        "📝 NLP处理模块 (第四周)": [
-            "test_text_postprocessor.py - 文本后处理",
-            "test_entity_extractor.py - 实体提取",
-            "test_topic_analyzer.py - 主题分析"
-        ],
-        "💡 会议洞察模块 (第四周)": [
-            "test_models.py - 数据模型",
-            "test_summarizer.py - 摘要生成",
-            "test_task_extractor.py - 任务提取",
-            "test_processor.py - 主处理器",
-            "test_integration.py - 集成测试"
-        ],
-        "📊 可视化模块 (第四周)": [
-            "test_report_generator.py - 报告生成",
-            "test_chart_generator.py - 图表生成"
-        ],
-        "🔌 异步API (第四周)": [
-            "test_insights_api.py - 洞察API",
-            "test_workflow_api.py - 工作流API"
-        ],
-        "📚 示例代码 (第四周)": [
-            "test_example_usage.py - 使用示例"
-        ]
+        "🎵 音频处理 (第1-3周)": {
+            "path": tests_dir / "audio_processing",
+            "files": [
+                "test_audio_preprocessing.py",
+                "test_audio_utils.py",
+                "test_basic.py",
+                "test_diarization.py",
+                "test_diarization_manual.py",
+                "test_long_audio.py",
+                "test_meeting_transcriber.py",
+                "test_whisper_basic.py",
+                "test_whisper_integration.py"
+            ]
+        },
+        "🔧 兼容性测试": {
+            "path": tests_dir / "compatibility",
+            "files": [
+                "check_pytorch_compatibility.py",
+                "fix_numpy_compatibility.py",
+                "fix_pyannote_now.py"
+            ]
+        },
+        "📝 NLP处理模块 (第四周)": {
+            "path": tests_dir / "test_nlp_processing",
+            "files": [
+                "test_entity_extractor.py",
+                "test_text_postprocessor.py",
+                "test_topic_analyzer.py"
+            ]
+        },
+        "💡 会议洞察模块 (第四周)": {
+            "path": tests_dir / "test_meeting_insights",
+            "files": [
+                "test_models.py",
+                "test_summarizer.py",
+                "test_task_extractor.py",
+                "test_processor.py",
+                "test_integration.py"
+            ]
+        },
+        "📊 可视化模块 (第四周)": {
+            "path": tests_dir / "test_visualization",
+            "files": [
+                "test_chart_generator.py",
+                "test_report_generator.py"
+            ]
+        },
+        "🔌 异步API (第四周)": {
+            "path": tests_dir / "test_async_api_extended",
+            "files": [
+                "test_insights_api.py",
+                "test_workflow_api.py"
+            ]
+        },
+        "📚 示例代码 (第四周)": {
+            "path": tests_dir / "test_examples",
+            "files": [
+                "test_example_usage.py"
+            ]
+        },
+        "⚙️  配置测试": {
+            "path": tests_dir,
+            "files": [
+                "test_config_nlp.py"
+            ]
+        }
     }
     
     total_tests = 0
-    for category, tests in test_categories.items():
-        print(f"\n{category}:")
-        for test in tests:
-            print(f"  {test}")
-            total_tests += 1
+    for category, info in test_categories.items():
+        existing_tests = []
+        path = info["path"]
+        
+        if path.exists():
+            for test_file in info["files"]:
+                test_path = path / test_file
+                if test_path.exists():
+                    # 获取相对路径
+                    rel_path = test_path.relative_to(tests_dir.parent)
+                    existing_tests.append(str(rel_path))
+        
+        if existing_tests:
+            print(f"\n{category}:")
+            for test in existing_tests:
+                print(f"  ✓ {test}")
+                total_tests += 1
     
     print(f"\n📈 总计: {total_tests} 个测试文件")
     
     print("\n📖 运行说明:")
-    print("  python tests/run_all_tests.py                 # 运行所有测试")
-    print("  python tests/run_all_tests.py --week4-only    # 只运行第四周测试")
-    print("  python tests/run_all_tests.py -v              # 详细模式")
-    print("  python tests/run_all_tests.py -c              # 带覆盖率")
-    print("  python tests/run_all_tests.py --skip-slow     # 跳过慢测试")
-    print("  python tests/run_fourth_week_tests.py         # 专门运行第四周测试")
+    print("  python tests/run_all_tests.py                           # 运行所有测试")
+    print("  python tests/run_all_tests.py --week4-only              # 只运行第四周测试")
+    print("  python tests/run_all_tests.py -v                        # 详细模式")
+    print("  python tests/run_all_tests.py -c                        # 带覆盖率")
+    print("  python tests/run_all_tests.py --skip-slow               # 跳过慢测试")
+    print("  python tests/run_all_tests.py --run-gpu                 # 运行GPU测试")
+    print("  python tests/run_fourth_week_tests.py                   # 专门运行第四周测试")
 
 def main():
     """主函数"""

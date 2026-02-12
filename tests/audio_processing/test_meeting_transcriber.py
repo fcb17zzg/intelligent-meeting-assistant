@@ -5,6 +5,7 @@
 """
 import sys
 import os
+from pathlib import Path
 import tempfile
 import numpy as np
 import soundfile as sf
@@ -15,9 +16,8 @@ import logging
 from typing import Dict, Any, List
 
 # 添加路径
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-src_dir = os.path.join(project_root, 'src')
-sys.path.insert(0, src_dir)
+project_root = str(Path(__file__).parent.parent.parent)
+sys.path.insert(0, project_root)
 
 # 配置日志
 logging.basicConfig(
@@ -159,8 +159,8 @@ class TestMeetingTranscriberEnhanced:
         print("测试1: 基本工作流程")
         print("="*60)
         
-        from audio_processing.core.meeting_transcriber import MeetingTranscriber
-        from audio_processing.models.transcription_result import TranscriptionResult
+        from src.audio_processing.core.meeting_transcriber import MeetingTranscriber
+        from src.audio_processing.models.transcription_result import TranscriptionResult
         
         # 创建转录器
         transcriber = MeetingTranscriber(
@@ -199,7 +199,7 @@ class TestMeetingTranscriberEnhanced:
         print("测试2: Whisper集成")
         print("="*60)
         
-        from audio_processing.core.whisper_client import WhisperClient, WhisperConfig
+        from src.audio_processing.core.whisper_client import WhisperClient, WhisperConfig
         
         # 创建Whisper客户端
         config = WhisperConfig(
@@ -237,7 +237,7 @@ class TestMeetingTranscriberEnhanced:
         print("测试3: 音频处理器")
         print("="*60)
         
-        from audio_processing.core.audio_processor import AudioProcessor
+        from src.audio_processing.core.audio_processor import AudioProcessor
         
         processor = AudioProcessor()
         
@@ -270,8 +270,8 @@ class TestMeetingTranscriberEnhanced:
         print("测试4: 结果保存")
         print("="*60)
         
-        from audio_processing.core.meeting_transcriber import MeetingTranscriber
-        from audio_processing.models.transcription_result import TranscriptionResult, SpeakerSegment
+        from src.audio_processing.core.meeting_transcriber import MeetingTranscriber
+        from src.audio_processing.models.transcription_result import TranscriptionResult, SpeakerSegment
         
         transcriber = MeetingTranscriber(device="cpu")
         
@@ -349,8 +349,8 @@ class TestMeetingTranscriberEnhanced:
         print("测试5: 说话人摘要")
         print("="*60)
         
-        from audio_processing.core.meeting_transcriber import MeetingTranscriber
-        from audio_processing.models.transcription_result import TranscriptionResult, SpeakerSegment
+        from src.audio_processing.core.meeting_transcriber import MeetingTranscriber
+        from src.audio_processing.models.transcription_result import TranscriptionResult, SpeakerSegment
         
         transcriber = MeetingTranscriber(device="cpu")
         
@@ -430,7 +430,7 @@ class TestMeetingTranscriberEnhanced:
         print("测试6: 长音频处理（5分钟音频）")
         print("="*60)
         
-        from audio_processing.core.meeting_transcriber import MeetingTranscriber
+        from src.audio_processing.core.meeting_transcriber import MeetingTranscriber
         
         # 创建转录器
         transcriber = MeetingTranscriber(
@@ -523,7 +523,7 @@ class TestMeetingTranscriberEnhanced:
         print("测试7: 中等音频处理比较")
         print("="*60)
         
-        from audio_processing.core.meeting_transcriber import MeetingTranscriber
+        from src.audio_processing.core.meeting_transcriber import MeetingTranscriber
         
         transcriber = MeetingTranscriber(
             whisper_model_size="base",
@@ -582,8 +582,8 @@ class TestMeetingTranscriberEnhanced:
         print("测试8: 错误处理")
         print("="*60)
         
-        from audio_processing.core.meeting_transcriber import MeetingTranscriber
-        from audio_processing.utils.error_handler import TranscriptionError
+        from src.audio_processing.core.meeting_transcriber import MeetingTranscriber
+        from src.audio_processing.utils.error_handler import TranscriptionError
         
         transcriber = MeetingTranscriber(device="cpu")
         
@@ -822,9 +822,9 @@ def run_quick_test():
     
     try:
         # 测试基本导入
-        from audio_processing.core.meeting_transcriber import MeetingTranscriber
-        from audio_processing.core.audio_processor import AudioProcessor
-        from audio_processing.core.whisper_client import WhisperClient, WhisperConfig
+        from src.audio_processing.core.meeting_transcriber import MeetingTranscriber
+        from src.audio_processing.core.audio_processor import AudioProcessor
+        from src.audio_processing.core.whisper_client import WhisperClient, WhisperConfig
         
         print("✅ 核心模块导入成功")
         

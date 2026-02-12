@@ -1,9 +1,13 @@
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
 # tests/test_whisper_basic.py
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from src.audio_processing.core.whisper_client import WhisperClient
+from src.audio_processing.core.whisper_client import WhisperClient, WhisperConfig
 import logging
 import numpy as np  # 顶部添加导入
 
@@ -15,7 +19,7 @@ def test_whisper_basic():
     
     # 初始化客户端
     print("初始化Whisper客户端...")
-    client = WhisperClient(model_size="base")  # 先用base模型快速测试
+    client = WhisperClient(config=WhisperConfig(model_size="base"))  # 先用base模型快速测试
     
     # 创建测试音频（沉默音频，仅测试流程）
     # 修改这里：明确指定dtype为float32

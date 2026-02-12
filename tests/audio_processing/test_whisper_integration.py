@@ -12,7 +12,7 @@ import pytest
 import torch  # 必须在这里导入，因为装饰器需要它
 
 # 现在导入WhisperClient
-from src.audio_processing.core.whisper_client import WhisperClient
+from src.audio_processing.core.whisper_client import WhisperClient, WhisperConfig
 
 # 其他导入
 import numpy as np
@@ -21,9 +21,11 @@ import tempfile
 
 def test_whisper_initialization():
     """测试Whisper客户端初始化"""
-    client = WhisperClient(model_size="tiny", device="cpu")  # 使用tiny更快
-    assert client.model is not None
-    assert client.device == "cpu"
+    client = WhisperClient(config=WhisperConfig(model_size="tiny", device="cpu"))  # 使用tiny更快
+    # 模型是懒加载的，初始化时不会加载，所以不检查 model 属性
+    assert isinstance(client, WhisperClient)  # 只检查客户端创建成功
+    # device 存储在 config 中
+    assert client.config.device == "cpu"
 
 def test_whisper_transcribe_array():
     """测试转录numpy数组"""
@@ -31,7 +33,7 @@ def test_whisper_transcribe_array():
     sr = 16000
     audio = np.zeros(sr * 2, dtype=np.float32)  # 2秒静音
     
-    client = WhisperClient(model_size="tiny", device="cpu")
+    client = WhisperClient(config=WhisperConfig(model_size="tiny", device="cpu"))
     
     result = client.transcribe(audio, language="zh")
     
@@ -50,7 +52,7 @@ def test_whisper_transcribe_file():
         temp_file = f.name
     
     try:
-        client = WhisperClient(model_size="tiny", device="cpu")
+        client = WhisperClient(config=WhisperConfig(model_size="tiny", device="cpu"))
         result = client.transcribe(temp_file, language="zh")
         
         assert result.text is not None
@@ -65,13 +67,13 @@ def test_whisper_transcribe_file():
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="需要GPU")
 def test_whisper_gpu():
     """测试GPU版本（如果可用）"""
-    client = WhisperClient(model_size="tiny", device="cuda")
+    client = WhisperClient(config=WhisperConfig(model_size="tiny", device="cuda"))
     assert client.device == "cuda"
 
 # 添加一个测试长音频处理的函数
 def test_whisper_transcribe_silence():
     """测试转录静音音频"""
-    client = WhisperClient(model_size="tiny", device="cpu")
+    client = WhisperClient(config=WhisperConfig(model_size="tiny", device="cpu"))
     
     # 创建10秒静音
     audio = np.zeros(16000 * 10, dtype=np.float32)
@@ -89,7 +91,7 @@ def test_whisper_transcribe_silence():
 # 添加测试不同语言的函数
 def test_whisper_english():
     """测试英语转录"""
-    client = WhisperClient(model_size="tiny", device="cpu")
+    client = WhisperClient(config=WhisperConfig(model_size="tiny", device="cpu"))
     
     # 创建测试音频（随机噪声，不会有实际识别）
     audio = np.random.randn(16000 * 3).astype(np.float32) * 0.01

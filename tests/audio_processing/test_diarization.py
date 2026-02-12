@@ -171,7 +171,7 @@ class TestDiarizationClient:
         assert segment.language == "zh"
         
         # 验证持续时间属性
-        assert segment.duration == 4.7
+        assert segment.duration == pytest.approx(4.7)
 
 
 # 运行简单的导入测试
