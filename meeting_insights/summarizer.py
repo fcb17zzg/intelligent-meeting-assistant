@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 from .models import MeetingInsights, KeyTopic
 from src.nlp_processing.llm_client import LLMClientFactory
 
@@ -59,28 +59,76 @@ class MeetingSummarizer:
         """使用LLM提取议题"""
         prompt = f"""请从以下会议对话中识别3-5个关键议题，并为每个议题提取3-5个关键词。
 
-对话内容：
-{text}
+        对话内容：
+        {text}
 
-输出JSON格式：
-{{
-  "topics": [
-    {{
-      "id": "topic_1",
-      "name": "议题名称",
-      "keywords": ["关键词1", "关键词2"],
-      "confidence": 0.9
-    }}
-  ]
-}}"""
+        输出JSON格式：
+        {{
+        "topics": [
+            {{
+            "id": "topic_1",
+            "name": "议题名称",
+            "keywords": ["关键词1", "关键词2"],
+            "confidence": 0.9
+            }}
+        ]
+        }}"""
         
         result = self.llm_client.generate_json(prompt)
         topics = []
         for i, topic_data in enumerate(result.get('topics', [])):
             topics.append(KeyTopic(
-                id=f"topic_{i+1}",
-                name=topic_data['name'],
+                id=topic_data.get('id', f"topic_{i+1}"),
+                name=topic_data.get('name', '未命名议题'),
                 keywords=topic_data.get('keywords', []),
-                confidence=topic_data.get('confidence', 0.8)
+                confidence=topic_data.get('confidence', 0.8),
+                speaker_involved=topic_data.get('speaker_involved', []),
+                start_time=topic_data.get('start_time'),
+                end_time=topic_data.get('end_time')
             ))
         return topics
+    
+    def _keyword_extract_topics(self, text: str) -> List[KeyTopic]:
+        """使用关键词提取议题（简单实现）"""
+        # 这里可以实现简单的关键词提取逻辑
+        # 返回一个默认的KeyTopic列表
+        return [
+            KeyTopic(
+                id="topic_1",
+                name="会议主要议题",
+                keywords=["讨论", "项目", "计划"],
+                confidence=0.6,
+                speaker_involved=[],
+                start_time=None,
+                end_time=None
+            )
+        ]
+    
+    def _validate_summary_result(self, result: Dict) -> Dict:
+        """验证并格式化摘要结果"""
+        default_result = {
+            "summary": "",
+            "executive_summary": "",
+            "key_topics": [],
+            "decisions": [],
+            "sentiment_overall": 0.0
+        }
+        
+        if isinstance(result, dict):
+            default_result.update(result)
+        
+        return default_result
+    
+    def _fallback_extractive_summary(self, text: str) -> Dict:
+        """降级方案：提取式摘要"""
+        # 简单的提取式摘要实现
+        sentences = text.split('。')
+        summary = '。'.join(sentences[:3]) + '。'
+        
+        return {
+            "summary": summary,
+            "executive_summary": summary[:100] + "...",
+            "key_topics": [],
+            "decisions": [],
+            "sentiment_overall": 0.0
+        }

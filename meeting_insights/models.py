@@ -3,6 +3,18 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from enum import Enum
 
+# 添加 LLMProvider 枚举
+class LLMProvider(str, Enum):
+    """LLM 提供商"""
+    OLLAMA = "ollama"
+    OPENAI = "openai"
+    AZURE = "azure"
+    CLAUDE = "claude"
+    QWEN = "qwen"
+    CHATGLM = "chatglm"
+    LOCAL = "local"
+    # 添加其他提供商...
+
 class Priority(str, Enum):
     """任务优先级"""
     LOW = "low"
@@ -33,11 +45,11 @@ class KeyTopic(BaseModel):
     """关键议题"""
     id: str
     name: str
-    confidence: float
-    keywords: List[str]
-    speaker_involved: List[str]
-    start_time: Optional[float]
-    end_time: Optional[float]
+    confidence: float = Field(default=0.8, ge=0.0, le=1.0)
+    keywords: List[str] = Field(default_factory=list)
+    speaker_involved: List[str] = Field(default_factory=list)
+    start_time: Optional[float] = None
+    end_time: Optional[float] = None
 
 class MeetingInsights(BaseModel):
     """会议洞察总览"""
@@ -62,7 +74,9 @@ class MeetingInsights(BaseModel):
     word_count: int = Field(..., description="总字数")
     generated_at: datetime = Field(default_factory=datetime.now)
     
-    class Config:
-        json_encoders = {
+    # 使用 ConfigDict 替代 Config（Pydantic V2）
+    model_config = {
+        "json_encoders": {
             datetime: lambda v: v.isoformat(),
         }
+    }

@@ -55,7 +55,7 @@ class TestNLPConfig:
         assert isinstance(config_dict, dict)
         
         # 转换为JSON
-        config_json = config.json()
+        config_json = config.model_dump_json()
         assert isinstance(config_json, str)
         
         # 从JSON重建

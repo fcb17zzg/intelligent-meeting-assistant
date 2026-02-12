@@ -1,10 +1,11 @@
 from enum import Enum
 from typing import Optional
-from pydantic import BaseSettings
+from pydantic_settings import BaseSettings
+from pydantic import ConfigDict
 
 class LLMProvider(str, Enum):
     OPENAI = "openai"
-    QWEN = "qwen"
+    QWEN = "qwen"      # 添加 QWEN
     CHATGLM = "chatglm"
     OLLAMA = "ollama"
     LOCAL = "local"
@@ -16,11 +17,11 @@ class NLPSettings(BaseSettings):
     llm_provider: LLMProvider = LLMProvider.OPENAI
     llm_model: str = "gpt-3.5-turbo"
     llm_api_key: Optional[str] = None
-    llm_base_url: Optional[str] = None  # 用于本地部署的模型
+    llm_base_url: Optional[str] = None
     llm_temperature: float = 0.3
     llm_max_tokens: int = 2000
     
-    # 本地模型路径（如果使用本地模型）
+    # 本地模型路径
     local_model_path: Optional[str] = None
     
     # 文本处理配置
@@ -29,13 +30,16 @@ class NLPSettings(BaseSettings):
     min_sentence_length: int = 3
     
     # 任务提取配置
-    task_extraction_method: str = "hybrid"  # hybrid, rules_only, llm_only
+    task_extraction_method: str = "hybrid"
     min_task_confidence: float = 0.6
     enable_date_parsing: bool = True
     
     # 主题分析配置
     num_topics: int = 5
-    topic_model_type: str = "keybert"  # keybert, lda, bertopic
+    topic_model_type: str = "keybert"
     
-    class Config:
-        env_prefix = "NLP_"
+    model_config = ConfigDict(
+        env_prefix="NLP_",
+        extra="ignore",
+        case_sensitive=False
+    )

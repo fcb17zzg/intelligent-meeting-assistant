@@ -212,7 +212,7 @@ class TestDataModels:
         )
         
         # 转换为JSON
-        json_str = insights.json()
+        json_str = insights.model_dump_json()
         assert isinstance(json_str, str)
         assert "meeting_id" in json_str
         assert "test" in json_str
@@ -222,7 +222,7 @@ class TestDataModels:
         assert "generated_at" in json_str
         
         # 从JSON重建
-        decoded = MeetingInsights.parse_raw(json_str)
+        decoded = MeetingInsights.model_validate_json(json_str)
         assert decoded.meeting_id == insights.meeting_id
         assert len(decoded.key_topics) == 1
         assert decoded.key_topics[0].name == "测试"
@@ -238,13 +238,13 @@ class TestDataModels:
         )
         
         # 转换为字典
-        insights_dict = insights.dict()
+        insights_dict = insights.model_dump()
         assert isinstance(insights_dict, dict)
         assert insights_dict["meeting_id"] == "test"
         assert insights_dict["meeting_duration"] == 600.0
         
         # 包含排除字段
-        insights_dict_exclude = insights.dict(exclude={"generated_at"})
+        insights_dict_exclude = insights.model_dump(exclude={"generated_at"})
         assert "generated_at" not in insights_dict_exclude
     
     def test_llm_provider_enum(self):
