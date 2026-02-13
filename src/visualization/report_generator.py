@@ -67,6 +67,9 @@ class ReportGenerator:
         with open(filename, 'w', encoding='utf-8') as f:
             f.write(f"# 会议报告: {meeting_data.get('title', '无标题')}\n\n")
             f.write(f"**生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+            f.write(f"**会议ID**: {meeting_data.get('meeting_id', '未知')}\n\n")
+            f.write(f"**会议ID**: {meeting_data.get('meeting_id', '未知')}\n\n")
+            f.write(f"**会议ID**: {meeting_data.get('meeting_id', '未知')}\n\n")
             
             # 会议信息
             f.write("## 会议信息\n\n")
@@ -83,7 +86,8 @@ class ReportGenerator:
             if 'action_items' in insights and insights['action_items']:
                 f.write("## 行动项\n\n")
                 for i, item in enumerate(insights['action_items'], 1):
-                    f.write(f"{i}. **{item.get('task', '')}**\n")
+                    task_desc = item.get("task", item.get("description", item.get("name", "未知任务")))
+                    f.write(f"{i}. **{task_desc}**\n")
                     if 'assignee' in item:
                         f.write(f"   - 负责人: {item['assignee']}\n")
                     if 'due_date' in item:
@@ -93,6 +97,14 @@ class ReportGenerator:
             # 关键主题
             if 'key_topics' in insights and insights['key_topics']:
                 f.write("## 关键主题\n\n")
+
+            # 会议决策
+            if 'decisions' in insights and insights['decisions']:
+                f.write("## 会议决策\n\n")
+                for decision in insights['decisions']:
+                    f.write(f"- {decision}\n")
+                f.write("\n")
+
                 for topic in insights['key_topics']:
                     f.write(f"- **{topic.get('topic', '')}**: {topic.get('description', '')}\n")
                     if 'keywords' in topic:
