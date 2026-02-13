@@ -1,4 +1,4 @@
-"""
+﻿"""
 异步API接口
 基于Celery的任务队列
 """
@@ -32,8 +32,8 @@ MEETING_INSIGHTS_AVAILABLE = False
 CONFIG_AVAILABLE = False
 
 try:
-    from meeting_insights.models import MeetingInsights, ActionItem, KeyTopic
-    from meeting_insights.processor import MeetingInsightsProcessor
+    from src.meeting_insights.models import MeetingInsights, ActionItem, KeyTopic
+    from src.meeting_insights.processor import MeetingInsightsProcessor
     MEETING_INSIGHTS_AVAILABLE = True
     INSIGHTS_AVAILABLE = True
     logger.info("成功导入会议洞察模块")
@@ -41,7 +41,7 @@ except ImportError as e:
     logger.warning(f"会议洞察模块导入失败 (meeting_insights): {e}")
 
 try:
-    from visualization.report_generator import ReportGenerator
+    from src.visualization.report_generator import ReportGenerator
     logger.info("成功导入可视化模块")
 except ImportError as e:
     logger.warning(f"可视化模块导入失败 (visualization): {e}")
@@ -313,7 +313,7 @@ def generate_meeting_insights_task(self, task_id: str, transcription_data: Dict[
         
         # 处理并生成洞察
         import asyncio
-        from meeting_insights.models import MeetingTranscript
+        from src.meeting_insights.models import MeetingTranscript
         
         # 创建MeetingTranscript对象
         transcript = MeetingTranscript(
@@ -344,7 +344,7 @@ def generate_meeting_insights_task(self, task_id: str, transcription_data: Dict[
         visualization_dir = None
         
         try:
-            from visualization.report_generator import ReportGenerator
+            from src.visualization.report_generator import ReportGenerator
             reporter = ReportGenerator(output_dir=report_dir)
             report_path = os.path.join(report_dir, f"{meeting_id or task_id}_report.md")
             
@@ -479,6 +479,105 @@ def generate_meeting_insights_task(self, task_id: str, transcription_data: Dict[
         
         raise
 
+@app.task(bind=True, name='workflow.tasks.process_transcription_result')
+def process_transcription_result_task(self, trans_task_id: str):
+    """处理转录结果并触发洞察生成"""
+    try:
+        # 获取转录结果
+        transcription_result = get_transcription_result(trans_task_id)
+        if not transcription_result:
+            raise ValueError(f"转录任务 {trans_task_id} 结果不存在")
+        
+        # 获取关联的会议ID
+        if redis_client:
+            # 通过遍历查找对应的 meeting_id
+            found_meeting_id = None
+            for key in redis_client.scan_iter("workflow:meeting:*"):
+                workflow_data = redis_client.get(key)
+                if workflow_data:
+                    workflow_info = json.loads(workflow_data)
+                    if workflow_info.get('transcription_task_id') == trans_task_id:
+                        found_meeting_id = workflow_info['meeting_id']
+                        break
+            
+            if not found_meeting_id:
+                logger.error(f"找不到转录任务 {trans_task_id} 对应的工作流")
+                return {
+                    'workflow_id': 'unknown',
+                    'transcription_task_id': trans_task_id,
+                    'status': 'workflow_not_found'
+                }
+            
+            # 获取工作流信息
+            workflow_info_str = redis_client.get(f"workflow:meeting:{found_meeting_id}")
+            if workflow_info_str:
+                workflow_info = json.loads(workflow_info_str)
+                
+                # 提交洞察生成任务
+                insights_task_id = submit_insights_generation_task(
+                    transcription_data=transcription_result,
+                    meeting_id=found_meeting_id,
+                    config=workflow_info.get('nlp_config'),
+                    callback_url=workflow_info.get('callback_url')
+                )
+                
+                # 更新工作流信息
+                workflow_info['insights_task_id'] = insights_task_id
+                workflow_info['status'] = 'insights_pending'
+                workflow_info['transcription_completed_time'] = datetime.now().isoformat()
+                
+                redis_client.setex(
+                    f"workflow:meeting:{found_meeting_id}",
+                    timedelta(hours=48),
+                    json.dumps(workflow_info, ensure_ascii=False)
+                )
+                
+                logger.info(f"工作流 {found_meeting_id}: 转录完成，已提交洞察任务 {insights_task_id}")
+                
+                return {
+                    'workflow_id': found_meeting_id,
+                    'transcription_task_id': trans_task_id,
+                    'insights_task_id': insights_task_id,
+                    'status': 'insights_submitted'
+                }
+            else:
+                logger.warning(f"找不到工作流信息: {found_meeting_id}")
+                return {
+                    'workflow_id': found_meeting_id,
+                    'transcription_task_id': trans_task_id,
+                    'status': 'workflow_info_not_found'
+                }
+        else:
+            logger.warning("Redis不可用，无法处理工作流")
+            return {
+                'workflow_id': 'unknown',
+                'transcription_task_id': trans_task_id,
+                'status': 'redis_unavailable'
+            }
+    
+    except Exception as e:
+        logger.error(f"工作流处理失败: {e}", exc_info=True)
+        
+        # 更新工作流状态为失败
+        if redis_client:
+            for key in redis_client.scan_iter("workflow:meeting:*"):
+                workflow_data = redis_client.get(key)
+                if workflow_data:
+                    workflow_info = json.loads(workflow_data)
+                    if workflow_info.get('transcription_task_id') == trans_task_id:
+                        found_meeting_id = workflow_info['meeting_id']
+                        workflow_info['status'] = 'failed'
+                        workflow_info['error'] = str(e)
+                        workflow_info['failed_time'] = datetime.now().isoformat()
+                        
+                        redis_client.setex(
+                            f"workflow:meeting:{found_meeting_id}",
+                            timedelta(hours=48),
+                            json.dumps(workflow_info, ensure_ascii=False)
+                        )
+                        break
+        
+        raise
 
 def submit_transcription_task(
     audio_path: str,
@@ -611,17 +710,6 @@ def submit_end_to_end_meeting_analysis(
 ) -> Dict[str, Any]:
     """
     提交端到端的会议分析任务（转录 + 洞察生成）
-    
-    Args:
-        audio_path: 音频文件路径
-        meeting_id: 会议ID
-        language: 转录语言
-        num_speakers: 说话人数
-        nlp_config: NLP处理配置
-        callback_url: Webhook回调URL
-        
-    Returns:
-        包含转录任务ID和洞察任务ID的字典
     """
     # 生成会议ID（如果未提供）
     if meeting_id is None:
@@ -632,7 +720,7 @@ def submit_end_to_end_meeting_analysis(
         audio_path=audio_path,
         language=language,
         num_speakers=num_speakers,
-        callback_url=None  # 不在这里回调，我们会链式处理
+        callback_url=None
     )
     
     # 存储关联信息
@@ -650,92 +738,24 @@ def submit_end_to_end_meeting_analysis(
         }
         redis_client.setex(workflow_key, timedelta(hours=48), json.dumps(workflow_info, ensure_ascii=False))
     
-    # 创建一个链式任务：转录完成后自动开始洞察生成
-    @app.task(bind=True, name='workflow.tasks.process_transcription_result')
-    def process_transcription_result_task(self, trans_task_id: str):
-        """处理转录结果并触发洞察生成"""
-        try:
-            # 获取转录结果
-            transcription_result = get_transcription_result(trans_task_id)
-            if not transcription_result:
-                raise ValueError(f"转录任务 {trans_task_id} 结果不存在")
-            
-            # 获取关联的会议ID
-            if redis_client:
-                workflow_info_str = redis_client.get(f"workflow:meeting:{meeting_id}")
-                if workflow_info_str:
-                    workflow_info = json.loads(workflow_info_str)
-                    
-                    # 提交洞察生成任务
-                    insights_task_id = submit_insights_generation_task(
-                        transcription_data=transcription_result,
-                        meeting_id=meeting_id,
-                        config=workflow_info.get('nlp_config'),
-                        callback_url=workflow_info.get('callback_url')
-                    )
-                    
-                    # 更新工作流信息
-                    workflow_info['insights_task_id'] = insights_task_id
-                    workflow_info['status'] = 'insights_pending'
-                    workflow_info['transcription_completed_time'] = datetime.now().isoformat()
-                    
-                    redis_client.setex(
-                        f"workflow:meeting:{meeting_id}",
-                        timedelta(hours=48),
-                        json.dumps(workflow_info, ensure_ascii=False)
-                    )
-                    
-                    logger.info(f"工作流 {meeting_id}: 转录完成，已提交洞察任务 {insights_task_id}")
-                    
-                    return {
-                        'workflow_id': meeting_id,
-                        'transcription_task_id': trans_task_id,
-                        'insights_task_id': insights_task_id,
-                        'status': 'insights_submitted'
-                    }
-            else:
-                logger.warning("Redis不可用，无法处理工作流")
-                return {
-                    'workflow_id': meeting_id,
-                    'transcription_task_id': trans_task_id,
-                    'status': 'redis_unavailable'
-                }
-        
-        except Exception as e:
-            logger.error(f"工作流处理失败: {e}", exc_info=True)
-            
-            # 更新工作流状态为失败
-            if redis_client:
-                workflow_info_str = redis_client.get(f"workflow:meeting:{meeting_id}")
-                if workflow_info_str:
-                    workflow_info = json.loads(workflow_info_str)
-                    workflow_info['status'] = 'failed'
-                    workflow_info['error'] = str(e)
-                    workflow_info['failed_time'] = datetime.now().isoformat()
-                    
-                    redis_client.setex(
-                        f"workflow:meeting:{meeting_id}",
-                        timedelta(hours=48),
-                        json.dumps(workflow_info, ensure_ascii=False)
-                    )
-            
-            raise
-    
     # 设置转录任务完成后的回调
     try:
         from celery import chain
+        logger.info("成功导入 celery.chain")  # 添加调试日志
         
         # 创建任务链
         workflow_chain = chain(
             transcribe_audio_task.s(transcription_task_id, audio_path, language, num_speakers),
             process_transcription_result_task.s(transcription_task_id)
         )
+        logger.info(f"成功创建任务链: {workflow_chain}")  # 添加调试日志
         
         # 异步执行链式任务
         workflow_chain.apply_async()
+        logger.info(f"工作流 {meeting_id}: 任务链创建成功")
         
     except Exception as e:
-        logger.error(f"创建工作流链失败: {e}")
+        logger.error(f"创建工作流链失败: {e}", exc_info=True)
         # 回退：只执行转录任务
         transcribe_audio_task.delay(transcription_task_id, audio_path, language, num_speakers)
     
@@ -745,7 +765,6 @@ def submit_end_to_end_meeting_analysis(
         'message': '端到端会议分析已启动，转录完成后将自动开始洞察生成',
         'meeting_id': meeting_id
     }
-
 
 def get_task_status(task_id: str) -> Dict[str, Any]:
     """
@@ -819,95 +838,6 @@ def get_transcription_result(task_id: str) -> Optional[Dict[str, Any]]:
             logger.error(f"读取结果文件失败: {e}")
     
     return None
-
-
-def get_insights_task_status(task_id: str) -> Dict[str, Any]:
-    """
-    获取会议洞察任务状态
-    
-    Args:
-        task_id: 任务ID
-        
-    Returns:
-        任务状态信息
-    """
-    if not redis_client:
-        return {
-            'task_id': task_id,
-            'status': 'redis_unavailable',
-            'message': 'Redis服务不可用'
-        }
-    
-    redis_key = f"insights:task:{task_id}"
-    task_data = redis_client.get(redis_key)
-    
-    if not task_data:
-        return {
-            'task_id': task_id,
-            'status': 'not_found',
-            'message': '任务不存在或已过期'
-        }
-    
-    task_info = json.loads(task_data)
-    
-    # 尝试从Celery获取进度
-    try:
-        from celery.result import AsyncResult
-        celery_result = AsyncResult(task_id, app=app)
-        
-        if celery_result.state == 'PROGRESS':
-            task_info['celery_progress'] = celery_result.info.get('progress', 0)
-            task_info['celery_stage'] = celery_result.info.get('stage', '')
-            task_info['celery_message'] = celery_result.info.get('message', '')
-        elif celery_result.state == 'SUCCESS':
-            task_info['celery_result'] = celery_result.result
-        elif celery_result.state == 'FAILURE':
-            task_info['celery_error'] = str(celery_result.result)
-        
-        task_info['celery_state'] = celery_result.state
-    except Exception as e:
-        logger.debug(f"获取Celery状态失败: {e}")
-    
-    return task_info
-
-
-def get_insights_result(task_id: str) -> Optional[Dict[str, Any]]:
-    """
-    获取会议洞察结果
-    
-    Args:
-        task_id: 任务ID
-        
-    Returns:
-        会议洞察结果或None
-    """
-    task_status = get_insights_task_status(task_id)
-    
-    if task_status.get('status') != InsightsTaskState.COMPLETED:
-        return None
-    
-    # 首先尝试从Redis缓存获取
-    if redis_client:
-        insights_cache_key = f"insights:result:{task_id}"
-        cached_result = redis_client.get(insights_cache_key)
-        
-        if cached_result:
-            try:
-                return json.loads(cached_result)
-            except Exception as e:
-                logger.warning(f"读取Redis缓存失败: {e}")
-    
-    # 如果Redis缓存没有，尝试从文件获取
-    insights_file = task_status.get('insights_file')
-    if insights_file and os.path.exists(insights_file):
-        try:
-            with open(insights_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"读取洞察结果文件失败: {e}")
-    
-    return None
-
 
 def get_meeting_report(task_id: str, report_type: str = "markdown") -> Optional[str]:
     """
@@ -1127,3 +1057,338 @@ if __name__ == "__main__":
     ''')
     
     print("\n异步API初始化完成（包含会议洞察功能）")
+
+def cancel_workflow(meeting_id: str) -> Dict[str, Any]:
+    """
+    取消工作流
+    
+    Args:
+        meeting_id: 会议ID
+        
+    Returns:
+        取消结果
+    """
+    if not redis_client:
+        return {
+            'meeting_id': meeting_id,
+            'cancelled': False,
+            'message': 'Redis服务不可用'
+        }
+    
+    workflow_key = f"workflow:meeting:{meeting_id}"
+    workflow_data = redis_client.get(workflow_key)
+    
+    if not workflow_data:
+        return {
+            'meeting_id': meeting_id,
+            'cancelled': False,
+            'message': '工作流不存在'
+        }
+    
+    workflow_info = json.loads(workflow_data)
+    
+    # 取消转录任务
+    trans_cancelled = False
+    if workflow_info.get('transcription_task_id'):
+        trans_cancelled = cancel_transcription_task(workflow_info['transcription_task_id'])
+    
+    # 取消洞察任务 - 使用 cancel_insights_task 函数
+    insights_cancelled = False
+    if workflow_info.get('insights_task_id'):
+        # 直接调用 cancel_insights_task 函数
+        insights_cancelled = cancel_insights_task(workflow_info['insights_task_id'])
+    
+    # 更新工作流状态
+    workflow_info['status'] = 'cancelled'
+    workflow_info['cancelled_time'] = datetime.now().isoformat()
+    workflow_info['transcription_cancelled'] = trans_cancelled
+    workflow_info['insights_cancelled'] = insights_cancelled
+    
+    redis_client.setex(workflow_key, timedelta(hours=48), 
+                      json.dumps(workflow_info, ensure_ascii=False))
+    
+    return {
+        'meeting_id': meeting_id,
+        'cancelled': True,
+        'transcription_cancelled': trans_cancelled,
+        'insights_cancelled': insights_cancelled
+    }
+
+
+def update_workflow_progress(meeting_id: str, progress: float, stage: str = None):
+    """
+    更新工作流进度
+    
+    Args:
+        meeting_id: 会议ID
+        progress: 进度百分比
+        stage: 当前阶段描述
+    """
+    if not redis_client:
+        return
+    
+    workflow_key = f"workflow:meeting:{meeting_id}"
+    workflow_data = redis_client.get(workflow_key)
+    
+    if workflow_data:
+        workflow_info = json.loads(workflow_data)
+        workflow_info['progress'] = progress
+        if stage:
+            workflow_info['current_stage'] = stage
+        workflow_info['updated_time'] = datetime.now().isoformat()
+        
+        redis_client.setex(workflow_key, timedelta(hours=48),
+                          json.dumps(workflow_info, ensure_ascii=False))
+
+
+def get_workflow_statistics() -> Dict[str, Any]:
+    """
+    获取工作流统计信息
+    
+    Returns:
+        统计信息
+    """
+    stats = {
+        'total_workflows': 0,
+        'completed': 0,
+        'failed': 0,
+        'pending': 0,
+        'cancelled': 0,
+        'in_progress': 0
+    }
+    
+    if not redis_client:
+        stats['error'] = 'Redis服务不可用'
+        return stats
+    
+    try:
+        for key in redis_client.scan_iter("workflow:meeting:*"):
+            stats['total_workflows'] += 1
+            workflow_data = redis_client.get(key)
+            if workflow_data:
+                workflow_info = json.loads(workflow_data)
+                status = workflow_info.get('status', 'unknown')
+                
+                if status in stats:
+                    stats[status] += 1
+                elif 'completed' in status:
+                    stats['completed'] += 1
+                elif 'failed' in status:
+                    stats['failed'] += 1
+                elif 'cancelled' in status:
+                    stats['cancelled'] += 1
+                elif 'pending' in status:
+                    stats['pending'] += 1
+                else:
+                    stats['in_progress'] += 1
+    except Exception as e:
+        logger.error(f"获取工作流统计失败: {e}")
+        stats['error'] = str(e)
+    
+    return stats
+
+
+def cleanup_old_workflows(max_age_days: int = 7) -> Dict[str, Any]:
+    """
+    清理旧工作流
+    
+    Args:
+        max_age_days: 最大保留天数
+        
+    Returns:
+        清理结果
+    """
+    result = {
+        'cleaned': 0,
+        'remaining': 0,
+        'errors': 0
+    }
+    
+    if not redis_client:
+        result['error'] = 'Redis服务不可用'
+        return result
+    
+    try:
+        cutoff_time = datetime.now() - timedelta(days=max_age_days)
+        
+        for key in redis_client.scan_iter("workflow:meeting:*"):
+            workflow_data = redis_client.get(key)
+            if workflow_data:
+                try:
+                    workflow_info = json.loads(workflow_data)
+                    created_time = workflow_info.get('created_time')
+                    
+                    if created_time:
+                        try:
+                            created_dt = datetime.fromisoformat(created_time)
+                            if created_dt < cutoff_time:
+                                redis_client.delete(key)
+                                result['cleaned'] += 1
+                            else:
+                                result['remaining'] += 1
+                        except (ValueError, TypeError):
+                            result['errors'] += 1
+                    else:
+                        result['errors'] += 1
+                except Exception:
+                    result['errors'] += 1
+            else:
+                result['errors'] += 1
+    except Exception as e:
+        logger.error(f"清理工作流失败: {e}")
+        result['error'] = str(e)
+    
+    return result
+
+
+def get_insights_task_status(task_id: str) -> Dict[str, Any]:
+    """
+    获取会议洞察任务状态
+
+    Args:
+        task_id: 任务ID
+
+    Returns:
+        任务状态信息
+    """
+    if not redis_client:
+        return {
+            'task_id': task_id,
+            'status': 'redis_unavailable',
+            'message': 'Redis服务不可用'
+        }
+
+    redis_key = f"insights:task:{task_id}"
+    task_data = redis_client.get(redis_key)
+
+    if not task_data:
+        return {
+            'task_id': task_id,
+            'status': 'not_found',
+            'message': '任务不存在或已过期'
+        }
+
+    task_info = json.loads(task_data)
+
+    # 添加Celery状态信息（供测试和监控使用）
+    # 这些字段是额外添加的，不影响原有功能
+    try:
+        from celery.result import AsyncResult
+        celery_result = AsyncResult(task_id, app=app)
+        task_info['celery_state'] = celery_result.state
+        
+        if celery_result.state == 'PROGRESS':
+            task_info['celery_progress'] = celery_result.info.get('progress', 0)
+            task_info['celery_stage'] = celery_result.info.get('stage', '')
+            task_info['celery_message'] = celery_result.info.get('message', '')
+        elif celery_result.state == 'SUCCESS':
+            task_info['celery_result'] = celery_result.result
+        elif celery_result.state == 'FAILURE':
+            task_info['celery_error'] = str(celery_result.result)
+    except Exception as e:
+        logger.debug(f"获取Celery状态失败: {e}")
+        # 不添加celery_state字段，或者添加为UNKNOWN
+        task_info['celery_state'] = 'UNKNOWN'
+
+    return task_info
+
+
+def get_insights_result(task_id: str) -> Optional[Dict[str, Any]]:
+    """
+    获取会议洞察结果
+
+    Args:
+        task_id: 任务ID
+
+    Returns:
+        会议洞察结果或None（如果任务未完成或无数据）
+    """
+    task_status = get_insights_task_status(task_id)
+
+    # 只有状态为 COMPLETED 才尝试获取结果
+    if task_status.get('status') != InsightsTaskState.COMPLETED:
+        return None
+
+    # 首先尝试从Redis缓存获取真实的结果数据
+    if redis_client:
+        insights_cache_key = f"insights:result:{task_id}"
+        cached_result = redis_client.get(insights_cache_key)
+        if cached_result:
+            try:
+                result_data = json.loads(cached_result)
+                # 确保返回的是真实的结果数据，而不是任务状态
+                if isinstance(result_data, dict) and 'meeting_id' in result_data:
+                    return result_data
+            except Exception as e:
+                logger.warning(f"读取Redis缓存失败: {e}")
+
+    # 如果Redis缓存没有，尝试从文件获取
+    insights_file = task_status.get('insights_file')
+    if insights_file and os.path.exists(insights_file):
+        try:
+            with open(insights_file, 'r', encoding='utf-8') as f:
+                result_data = json.load(f)
+                if isinstance(result_data, dict):
+                    return result_data
+        except Exception as e:
+            logger.error(f"读取洞察结果文件失败: {e}")
+            return None
+    
+    # 没有结果数据
+    return None
+
+# ============ 工作流管理函数 ============
+
+def cancel_insights_task(task_id: str) -> bool:
+    """
+    取消洞察任务
+    
+    Args:
+        task_id: 任务ID
+        
+    Returns:
+        是否取消成功
+    """
+    try:
+        # 更新任务状态
+        update_task_status(task_id, InsightsTaskState.CANCELLED, {
+            'cancelled_time': datetime.now().isoformat()
+        })
+        
+        # 尝试终止Celery任务
+        from celery.result import AsyncResult
+        celery_result = AsyncResult(task_id, app=app)
+        celery_result.revoke(terminate=True)
+        
+        logger.info(f"洞察任务 {task_id} 已取消")
+        return True
+        
+    except Exception as e:
+        logger.error(f"取消洞察任务失败: {e}")
+        return False
+
+
+def update_workflow_progress(meeting_id: str, progress: float, stage: str = None):
+    """
+    更新工作流进度
+    
+    Args:
+        meeting_id: 会议ID
+        progress: 进度百分比
+        stage: 当前阶段描述
+    """
+    if not redis_client:
+        return
+    
+    workflow_key = f"workflow:meeting:{meeting_id}"
+    workflow_data = redis_client.get(workflow_key)
+    
+    if workflow_data:
+        workflow_info = json.loads(workflow_data)
+        workflow_info['progress'] = progress
+        if stage:
+            workflow_info['current_stage'] = stage
+        workflow_info['updated_time'] = datetime.now().isoformat()
+        
+        redis_client.setex(workflow_key, timedelta(hours=48),
+                          json.dumps(workflow_info, ensure_ascii=False))
