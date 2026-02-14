@@ -48,4 +48,30 @@ client.interceptors.response.use(
   }
 )
 
+/**
+ * 设置认证令牌
+ * @param {string} token - JWT令牌
+ */
+const setToken = (token) => {
+  if (token) {
+    client.defaults.headers.common['Authorization'] = `Bearer ${token}`
+    localStorage.setItem('access_token', token)
+  } else {
+    delete client.defaults.headers.common['Authorization']
+    localStorage.removeItem('access_token')
+  }
+}
+
+/**
+ * 清除认证令牌
+ */
+const clearToken = () => {
+  delete client.defaults.headers.common['Authorization']
+  localStorage.removeItem('access_token')
+}
+
+// 将方法添加到client对象
+client.setToken = setToken
+client.clearToken = clearToken
+
 export default client
