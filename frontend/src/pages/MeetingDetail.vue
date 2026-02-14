@@ -121,9 +121,27 @@
         <SummaryDisplay
           :summary="summary"
           :loading="summaryLoading"
+          :transcription="transcriptionData"
           @refresh="loadSummary"
           @update-notes="updateSummaryNotes"
         />
+      </el-card>
+
+      <!-- 可视化控制 -->
+      <el-card class="section-card" shadow="hover">
+        <template #header>
+          <span>📈 可视化</span>
+        </template>
+
+        <div style="display:flex; gap:12px; align-items:center">
+          <el-button type="primary" :loading="vizLoading" @click="generateVisualization">
+            生成可视化图表
+          </el-button>
+
+          <el-button v-if="visualizationResults" @click="() => {}">查看结果（控制台）</el-button>
+          <span v-if="visualizationResults" style="color:#909399">已生成图表数据</span>
+        </div>
+
       </el-card>
 
       <!-- 任务列表，获取 -->
@@ -177,6 +195,7 @@ import { formatDate } from '@/utils/dateUtils'
 import AudioUploader from '@/components/AudioUploader.vue'
 import SummaryDisplay from '@/components/SummaryDisplay.vue'
 import TaskList from '@/components/TaskList.vue'
+import visualizationService from '@/services/visualizationService'
 
 const route = useRoute()
 const router = useRouter()
@@ -190,6 +209,9 @@ const editForm = ref({})
 const transcribing = ref(false)
 const transcribeProgress = ref(0)
 const summaryLoading = ref(false)
+const transcriptionData = ref(null)
+const visualizationResults = ref(null)
+const vizLoading = ref(false)
 
 const meetingId = route.params.id
 
@@ -217,7 +239,13 @@ const getStatusType = (status) => {
 
 const onAudioUploadSuccess = (response) => {
   ElMessage.success('音频上传成功')
+  // response 可能为 meetingProcessingService.processMeeting 的结果
+  // 如果包含 transcription，则传给 SummaryDisplay
+  transcriptionData.value = response?.transcription || response
+  // 刷新会议详情/摘要/任务
   loadMeetingDetail()
+  loadSummary()
+  loadTasks()
 }
 
 const onAudioUploadError = (error) => {
@@ -274,6 +302,29 @@ const loadSummary = async () => {
     console.log('获取摘要:', error)
   } finally {
     summaryLoading.value = false
+  }
+}
+
+const generateVisualization = async () => {
+  if (!summary.value && !transcriptionData.value) {
+    ElMessage.error('没有可用的洞见数据用于生成可视化')
+    return
+  }
+
+  vizLoading.value = true
+  visualizationResults.value = null
+
+  try {
+    // 构造insights：优先使用 summary._nlp，如果不存在则使用 transcriptionData
+    const insights = summary.value?._nlp || { processed: transcriptionData.value } || {}
+
+    const res = await visualizationService.generateAllCharts(insights, Number(meetingId))
+    visualizationResults.value = res
+    ElMessage.success('可视化生成完成')
+  } catch (err) {
+    ElMessage.error('可视化生成失败：' + (err.message || err))
+  } finally {
+    vizLoading.value = false
   }
 }
 

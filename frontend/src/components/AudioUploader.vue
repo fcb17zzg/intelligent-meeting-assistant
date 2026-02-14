@@ -69,6 +69,8 @@ const props = defineProps({
 
 const emit = defineEmits(['upload-success', 'upload-error', 'file-selected'])
 
+import meetingProcessingService from '../services/meetingProcessingService'
+
 const fileInput = ref(null)
 const selectedFile = ref(null)
 const isDragging = ref(false)
@@ -144,7 +146,7 @@ const clearFile = () => {
   uploadProgress.value = 0
 }
 
-const uploadFile = async (apiFunction) => {
+const uploadFile = async () => {
   if (!selectedFile.value) {
     ElMessage.error('请先选择文件')
     return false
@@ -155,46 +157,33 @@ const uploadFile = async (apiFunction) => {
   errorMessage.value = ''
 
   try {
-    const formData = new FormData()
-    formData.append('file', selectedFile.value)
-
-    const xhr = new XMLHttpRequest()
-
-    xhr.upload.addEventListener('progress', (event) => {
-      if (event.lengthComputable) {
-        uploadProgress.value = (event.loaded / event.total) * 100
-      }
+    // 使用综合处理服务：上传 -> 转录 -> NLP -> 可视化（可选）
+    const result = await meetingProcessingService.processMeeting(selectedFile.value, {
+      language: 'auto',
+      enableDiarization: true,
+      enableNLPAnalysis: true,
+      enableVisualization: false,
+      meetingId: props.meetingId || 0,
     })
 
-    return new Promise((resolve, reject) => {
-      xhr.onload = () => {
-        uploading.value = false
-        if (xhr.status === 200) {
-          ElMessage.success('上传成功')
-          emit('upload-success', JSON.parse(xhr.responseText))
-          clearFile()
-          resolve(true)
-        } else {
-          errorMessage.value = '上传失败'
-          emit('upload-error', xhr.responseText)
-          reject(new Error('Upload failed'))
-        }
-      }
+    uploading.value = false
+    uploadProgress.value = 100
 
-      xhr.onerror = () => {
-        uploading.value = false
-        errorMessage.value = '网络错误'
-        emit('upload-error', '网络错误')
-        reject(new Error('Network error'))
-      }
-
-      xhr.open('POST', `/api/meetings/${props.meetingId}/upload-audio`)
-      xhr.send(formData)
-    })
+    if (result && result.status === 'success') {
+      ElMessage.success('处理完成')
+      emit('upload-success', result)
+      clearFile()
+      return true
+    } else {
+      const msg = result?.error || '处理失败'
+      errorMessage.value = msg
+      emit('upload-error', msg)
+      return false
+    }
   } catch (err) {
     uploading.value = false
-    errorMessage.value = '上传出错：' + err.message
-    emit('upload-error', err.message)
+    errorMessage.value = '上传或处理出错：' + (err.message || err)
+    emit('upload-error', err.message || err)
     return false
   }
 }

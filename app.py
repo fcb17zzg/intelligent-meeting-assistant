@@ -143,13 +143,16 @@ async def api_status(db: Session = Depends(get_db)):
 # ==================== 导入并注册路由 ====================
 
 try:
-    from src.api.routes import users, meetings, tasks, transcription, auth
+    from src.api.routes import users, meetings, tasks, transcription, auth, audio_processing, nlp_analysis, visualization
     
     app.include_router(auth.router, prefix="/api", tags=["认证"])
     app.include_router(users.router, prefix="/api", tags=["users"])
     app.include_router(meetings.router, prefix="/api", tags=["meetings"])
     app.include_router(tasks.router, prefix="/api", tags=["tasks"])
     app.include_router(transcription.router, prefix="/api", tags=["transcription"])
+    app.include_router(audio_processing.router, prefix="/api", tags=["音频处理"])
+    app.include_router(nlp_analysis.router, prefix="/api", tags=["NLP分析"])
+    app.include_router(visualization.router, prefix="/api", tags=["可视化"])
     
     logger.info("✓ API路由已注册")
 except ImportError as e:

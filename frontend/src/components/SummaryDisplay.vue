@@ -133,9 +133,10 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { formatDate, formatDuration } from '@/utils/dateUtils'
+import nlpAnalysisService from '@/services/nlpAnalysisService'
 
 const props = defineProps({
   summary: {
@@ -146,11 +147,83 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  transcription: {
+    type: Object,
+    default: null,
+  },
 })
 
 const emit = defineEmits(['update-notes', 'refresh'])
 
 const editingNotes = ref(false)
+const localLoading = ref(false)
+const localSummary = ref(null)
+
+const displayedSummary = computed(() => props.summary || localSummary.value)
+
+// 当收到转录数据时自动触发 NLP 分析和摘要生成
+watch(
+  () => props.transcription,
+  async (newVal) => {
+    if (!newVal) return
+    try {
+      localLoading.value = true
+
+      const segments = newVal.segments || []
+      const fullText = newVal.text || segments.map((s) => s.text || '').join(' ')
+
+      // 并行请求：处理转录（实体/关键词/句子级分析）与摘要
+      const [processedResp, summaryResp] = await Promise.all([
+        nlpAnalysisService.processTranscript(segments, newVal.language || 'zh'),
+        nlpAnalysisService.generateSummary(fullText, 'medium', newVal.language || 'zh'),
+      ])
+
+      // 合成本地 summary 结构，尽量兼容模板字段
+      localSummary.value = {
+        title: newVal.file_name || '会议摘要',
+        duration: newVal.duration || null,
+        created_at: newVal.transcription_time || newVal.created_at || null,
+        speaker_count: processedResp.segments ? processedResp.segments.length : (newVal.speaker_count || 0),
+        summary_text: summaryResp.summary || summaryResp.summary_text || '',
+        key_topics: processedResp.segments ? [] : [],
+        highlights: [],
+        action_items: [],
+        speaker_stats: {},
+        notes: '',
+        // 原始分析数据
+        _nlp: {
+          processed: processedResp,
+          summary: summaryResp,
+        },
+      }
+
+      // 如果 processTranscript 返回 processed segments，尝试构建简单 speaker_stats 和 key_topics
+      try {
+        const proc = processedResp
+        if (proc && proc.segments) {
+          const stats = {}
+          proc.segments.forEach((s) => {
+            const sp = s.speaker || 'Unknown'
+            stats[sp] = (stats[sp] || 0) + 1
+          })
+          localSummary.value.speaker_stats = stats
+        }
+        if (proc && proc.segments) {
+          // 从 processed segments 中提取简单 key topics（占位）
+          localSummary.value.key_topics = (proc.segments.slice(0, 5) || []).map((s) => s.text?.slice(0, 30) || '')
+        }
+      } catch (e) {
+        // ignore
+      }
+
+    } catch (err) {
+      ElMessage.error('自动分析失败：' + (err.message || err))
+    } finally {
+      localLoading.value = false
+    }
+  },
+  { immediate: true }
+)
 
 const calculatePercentage = (count, stats) => {
   const total = Object.values(stats).reduce((a, b) => a + b, 0)
@@ -165,7 +238,8 @@ const getProgressColor = (value, stats) => {
 }
 
 const exportSummary = () => {
-  if (!props.summary) {
+  const s = displayedSummary.value
+  if (!s) {
     ElMessage.error('没有可导出的摘要')
     return
   }
@@ -180,7 +254,7 @@ const exportSummary = () => {
 }
 
 const generateSummaryText = () => {
-  const s = props.summary
+  const s = displayedSummary.value
   let text = ''
 
   text += `会议摘要\n`
