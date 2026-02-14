@@ -149,8 +149,7 @@ const rules = {
   ],
   description: [{ max: 500, message: '描述长度不能超过500个字符', trigger: 'blur' }],
   duration: [
-    { type: 'number', message: '请输入有效的数字', trigger: 'blur' },
-    { max: 1440, message: '时长不能超过1440分钟（24小时）', trigger: 'blur' },
+    { type: 'number', max: 1440, message: '请输入0-1440之间的数字（分钟）', trigger: 'blur' },
   ],
   participants: [{ type: 'number', message: '请输入有效的数字', trigger: 'blur' }],
 }
@@ -173,6 +172,7 @@ const submitForm = async () => {
     const submitData = {
       title: formData.value.title,
       description: formData.value.description || null,
+      start_time: new Date().toISOString(), // 自动设置为当前时间
       duration: formData.value.duration || null,
       participants: formData.value.participants || null,
       location: formData.value.location || null,
