@@ -143,8 +143,9 @@ async def api_status(db: Session = Depends(get_db)):
 # ==================== 导入并注册路由 ====================
 
 try:
-    from src.api.routes import users, meetings, tasks, transcription
+    from src.api.routes import users, meetings, tasks, transcription, auth
     
+    app.include_router(auth.router, prefix="/api", tags=["认证"])
     app.include_router(users.router, prefix="/api", tags=["users"])
     app.include_router(meetings.router, prefix="/api", tags=["meetings"])
     app.include_router(tasks.router, prefix="/api", tags=["tasks"])

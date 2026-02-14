@@ -1,0 +1,22 @@
+# 依赖
+node_modules
+.pnp
+.pnp.js
+
+# 构建
+dist
+dist-ssr
+*.local
+
+# 编辑器
+.vscode
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS
+.DS_Store
+Thumbs.db

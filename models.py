@@ -8,6 +8,14 @@ from sqlmodel import SQLModel, Field, Relationship
 from enum import Enum
 
 
+class UserRole(str, Enum):
+    """用户角色"""
+    ADMIN = "admin"
+    MANAGER = "manager"
+    USER = "user"
+    GUEST = "guest"
+
+
 class MeetingStatus(str, Enum):
     """会议状态"""
     SCHEDULED = "scheduled"
@@ -40,6 +48,7 @@ class UserBase(SQLModel):
     email: str = Field(index=True, unique=True)
     full_name: Optional[str] = None
     is_active: bool = True
+    role: UserRole = Field(default=UserRole.USER)
 
 
 class User(UserBase, table=True):
@@ -60,11 +69,36 @@ class User(UserBase, table=True):
 class UserRead(UserBase):
     """用户读取模型"""
     id: int
+    created_at: datetime
+    updated_at: datetime
 
 
-class UserCreate(UserBase):
+class UserCreate(SQLModel):
     """创建用户请求"""
+    username: str
+    email: str
     password: str
+    full_name: Optional[str] = None
+
+
+class UserLogin(SQLModel):
+    """登录请求"""
+    username: str
+    password: str
+
+
+class Token(SQLModel):
+    """Token响应"""
+    access_token: str
+    token_type: str = "bearer"
+    user: UserRead
+
+
+class TokenData(SQLModel):
+    """Token数据"""
+    user_id: Optional[int] = None
+    username: Optional[str] = None
+    role: Optional[str] = None
 
 
 # ==================== Meeting Models ====================
