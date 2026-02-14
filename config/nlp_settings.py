@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Optional
 from pydantic_settings import BaseSettings
-from pydantic import ConfigDict
+from pydantic import ConfigDict, field_validator
 
 class LLMProvider(str, Enum):
     OPENAI = "openai"
@@ -37,6 +37,22 @@ class NLPSettings(BaseSettings):
     # 主题分析配置
     num_topics: int = 5
     topic_model_type: str = "keybert"
+    
+    @field_validator('min_task_confidence')
+    @classmethod
+    def validate_confidence(cls, v):
+        """验证任务置信度在0到1之间"""
+        if not (0 <= v <= 1):
+            raise ValueError('min_task_confidence must be between 0 and 1')
+        return v
+    
+    @field_validator('llm_temperature')
+    @classmethod
+    def validate_temperature(cls, v):
+        """验证温度参数在0到2之间"""
+        if not (0 <= v <= 2):
+            raise ValueError('llm_temperature must be between 0 and 2')
+        return v
     
     model_config = ConfigDict(
         env_prefix="NLP_",

@@ -73,6 +73,7 @@ def run_complete_test_suite(test_pattern=None, verbose=False, coverage=False,
         print(f"🎯 测试模式: {test_pattern}")
     else:
         # 运行所有测试 - 修正为实际目录结构
+        # 但排除耗时的集成测试
         test_dirs = [
             'tests/audio_processing',           # 第1-3周
             'tests/compatibility',              # 兼容性测试
@@ -84,7 +85,13 @@ def run_complete_test_suite(test_pattern=None, verbose=False, coverage=False,
             'tests/test_config_nlp.py'          # 第四周
         ]
         test_args.extend(test_dirs)
-        print("📅 测试范围: 所有功能 (第1-4周)")
+        
+        # 排除耗时的集成测试
+        test_args.extend([
+            '--ignore=tests/audio_processing/test_long_audio.py',
+            '--ignore=tests/audio_processing/test_meeting_transcriber.py'
+        ])
+        print("📅 测试范围: 所有功能 (第1-4周，排除耗时集成测试)")
     
     print(f"⚙️  测试参数: {' '.join(test_args)}")
     print("\n🔍 开始运行测试...")

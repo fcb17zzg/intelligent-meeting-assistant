@@ -3,7 +3,7 @@ NLP配置测试 (第四周)
 """
 import sys
 import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 from config.nlp_settings import NLPSettings, LLMProvider

@@ -106,3 +106,9 @@ def sample_audio_path(tmp_path):
     audio_file = tmp_path / "test_audio.wav"
     audio_file.write_bytes(b"fake audio data")
     return str(audio_file)
+@pytest.fixture
+def audio_file(tmp_path):
+    """为test_audio_utils.py提供音频文件fixture"""
+    audio_file = tmp_path / "test_audio.wav"
+    audio_file.write_bytes(b"fake audio data")
+    return str(audio_file)
