@@ -5,8 +5,13 @@
 import logging
 import asyncio
 from datetime import datetime
-from typing import Optional
-from fastapi import APIRouter, HTTPException, File, UploadFile
+from typing import Optional, List
+from fastapi import APIRouter, HTTPException, Depends
+
+from database import get_db
+from sqlmodel import Session
+from src.meeting_insights.summarizer import MeetingSummarizer
+from src.meeting_insights.task_extractor import TaskExtractor
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -238,15 +243,40 @@ async def summarize_transcription(
     transcription_id: int,
     max_length: int = 200,
     summary_type: str = "abstractive",
+    text: Optional[str] = None,
+    db: Session = Depends(get_db),
 ):
     """
     对转录文本生成摘要
     """
-    return {
-        "transcription_id": transcription_id,
-        "status": "summarizing",
-        "type": summary_type,
-    }
+    try:
+        # 如果未提供文本，从数据库中的 Meeting 表尝试读取
+        if not text:
+            try:
+                from models import Meeting
+                meeting = db.query(Meeting).filter(Meeting.id == transcription_id).first()
+                if meeting:
+                    text = meeting.transcript_formatted or meeting.transcript_raw or ""
+            except Exception:
+                text = ""
+
+        if not text:
+            raise HTTPException(status_code=404, detail="未找到转录文本，请提供 text 参数或确保 meeting 存在")
+
+        summarizer = MeetingSummarizer(config={})
+        result = summarizer.generate_summary(text, duration=0)
+
+        return {
+            "transcription_id": transcription_id,
+            "status": "completed",
+            "type": summary_type,
+            "summary": result,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"摘要生成失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/transcription/{transcription_id}/extract-actions")
@@ -257,11 +287,43 @@ async def extract_actions_from_transcription(
     """
     从转录中提取行动项（任务）
     """
-    return {
-        "transcription_id": transcription_id,
-        "actions_found": 0,
-        "status": "extracting",
-    }
+    try:
+        # 尝试从数据库读取转录文本
+        from database import get_db as _get_db
+        db = next(_get_db())
+        from models import Meeting
+        meeting = db.query(Meeting).filter(Meeting.id == transcription_id).first()
+        text = meeting.transcript_formatted or meeting.transcript_raw if meeting else ""
+
+        if not text:
+            raise HTTPException(status_code=404, detail="未找到转录文本，请先上传或提供文本")
+
+        extractor = TaskExtractor(config={})
+        actions = extractor.extract_from_text(text)
+
+        # 过滤置信度
+        filtered = [
+            {
+                "description": a.description,
+                "assignee": a.assignee,
+                "due_date": a.due_date.isoformat() if a.due_date else None,
+                "priority": a.priority.name if hasattr(a.priority, 'name') else str(a.priority),
+                "confidence": a.confidence,
+            }
+            for a in actions if a.confidence >= min_confidence
+        ]
+
+        return {
+            "transcription_id": transcription_id,
+            "actions_found": len(filtered),
+            "actions": filtered,
+            "status": "completed",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"提取行动项失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/transcription/{transcription_id}/extract-topics")
@@ -271,8 +333,37 @@ async def extract_topics_from_transcription(
     """
     从转录中提取关键议题
     """
-    return {
-        "transcription_id": transcription_id,
-        "topics": [],
-        "status": "extracting",
-    }
+    try:
+        from database import get_db as _get_db
+        db = next(_get_db())
+        from models import Meeting
+        meeting = db.query(Meeting).filter(Meeting.id == transcription_id).first()
+        text = meeting.transcript_formatted or meeting.transcript_raw if meeting else ""
+
+        if not text:
+            raise HTTPException(status_code=404, detail="未找到转录文本，请先上传或提供文本")
+
+        summarizer = MeetingSummarizer(config={})
+        topics = summarizer.extract_key_topics(text)
+
+        # 格式化输出
+        out = [
+            {
+                "id": t.id,
+                "name": t.name,
+                "keywords": t.keywords,
+                "confidence": t.confidence,
+            }
+            for t in topics
+        ]
+
+        return {
+            "transcription_id": transcription_id,
+            "topics": out,
+            "status": "completed",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"提取议题失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

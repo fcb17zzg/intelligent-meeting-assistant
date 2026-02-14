@@ -14,10 +14,10 @@ from database import init_db, get_db
 from models import User, Meeting, Task
 
 # ==================== 日志配置 ====================
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+from src.logging_config import configure_logging
+
+# 初始化集中式日志（控制台 + 文件轮转）
+configure_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -143,7 +143,7 @@ async def api_status(db: Session = Depends(get_db)):
 # ==================== 导入并注册路由 ====================
 
 try:
-    from src.api.routes import users, meetings, tasks, transcription, auth, audio_processing, nlp_analysis, visualization
+    from src.api.routes import users, meetings, tasks, transcription, auth, audio_processing, nlp_analysis, visualization, ws_transcribe
     
     app.include_router(auth.router, prefix="/api", tags=["认证"])
     app.include_router(users.router, prefix="/api", tags=["users"])
@@ -151,6 +151,7 @@ try:
     app.include_router(tasks.router, prefix="/api", tags=["tasks"])
     app.include_router(transcription.router, prefix="/api", tags=["transcription"])
     app.include_router(audio_processing.router, prefix="/api", tags=["音频处理"])
+    app.include_router(ws_transcribe.router, prefix="/api", tags=["websocket"])
     app.include_router(nlp_analysis.router, prefix="/api", tags=["NLP分析"])
     app.include_router(visualization.router, prefix="/api", tags=["可视化"])
     
