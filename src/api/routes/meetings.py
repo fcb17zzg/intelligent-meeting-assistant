@@ -222,7 +222,7 @@ async def get_meeting_tasks(meeting_id: int, db: Session = Depends(get_db)):
     from sqlmodel import select
 
     query = select(Task).where(Task.meeting_id == meeting_id)
-    results = db.exec(query).all()
+    results = db.execute(query).scalars().all()
     return results
 
 
