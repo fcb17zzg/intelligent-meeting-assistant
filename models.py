@@ -155,16 +155,16 @@ class MeetingRead(MeetingBase):
     id: int
     status: MeetingStatus
     owner_id: int
-    summary: Optional[str]
+    summary: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
 
 class MeetingDetail(MeetingRead):
     """会议详细模型"""
-    transcript_raw: Optional[str]
-    transcript_formatted: Optional[str]
-    key_topics: Optional[str]
+    transcript_raw: Optional[str] = None
+    transcript_formatted: Optional[str] = None
+    key_topics: Optional[str] = None
     tasks: List["TaskRead"] = []
     segments: List["TranscriptSegmentRead"] = []
 

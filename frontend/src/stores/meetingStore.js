@@ -24,7 +24,14 @@ export const useMeetingStore = defineStore('meeting', () => {
     error.value = null
     try {
       const response = await meetingAPI.getMeetings()
-      meetings.value = response.data || response
+      const payload = response.data || response
+      if (Array.isArray(payload)) {
+        meetings.value = payload
+      } else if (payload && Array.isArray(payload.meetings)) {
+        meetings.value = payload.meetings
+      } else {
+        meetings.value = []
+      }
     } catch (err) {
       error.value = err.message || '获取会议列表失败'
       console.error('Fetch meetings error:', err)

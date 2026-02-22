@@ -5,6 +5,8 @@ import logging
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
+from sqlmodel import Session, select
+from database import get_db
 
 from models import (
     Task, TaskRead, TaskCreate, TaskUpdate, TaskDetail,
@@ -25,6 +27,7 @@ async def list_tasks(
     priority: Optional[TaskPriority] = None,
     meeting_id: Optional[int] = None,
     assignee_id: Optional[int] = None,
+    db: Session = Depends(get_db),
 ):
     """
     获取任务列表
@@ -48,7 +51,18 @@ async def list_tasks(
     #     query = query.filter(Task.assignee_id == assignee_id)
     # tasks = query.offset(skip).limit(limit).all()
     
-    return []
+    query = select(Task)
+    if status:
+        query = query.where(Task.status == status)
+    if priority:
+        query = query.where(Task.priority == priority)
+    if meeting_id:
+        query = query.where(Task.meeting_id == meeting_id)
+    if assignee_id:
+        query = query.where(Task.assignee_id == assignee_id)
+
+    results = db.exec(query.offset(skip).limit(limit)).all()
+    return results
 
 
 @router.get("/tasks/{task_id}", response_model=TaskDetail)
@@ -60,23 +74,15 @@ async def get_task(task_id: int):
 
 
 @router.post("/tasks", response_model=TaskRead)
-async def create_task(task: TaskCreate):
+async def create_task(task: TaskCreate, db: Session = Depends(get_db)):
     """
     创建新任务
     """
-    return {
-        "id": 1,
-        "title": task.title,
-        "description": task.description,
-        "meeting_id": task.meeting_id,
-        "due_date": task.due_date,
-        "priority": task.priority,
-        "status": TaskStatus.PENDING,
-        "assignee_id": task.assignee_id,
-        "confidence": 0.8,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
-    }
+    db_task = Task(**task.dict())
+    db.add(db_task)
+    db.commit()
+    db.refresh(db_task)
+    return db_task
 
 
 @router.put("/tasks/{task_id}", response_model=TaskRead)

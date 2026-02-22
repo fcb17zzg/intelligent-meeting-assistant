@@ -6,13 +6,14 @@ import logging
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session
+from sqlmodel import Session, select
 from pathlib import Path
 
 from models import (
     Meeting, MeetingRead, MeetingCreate, MeetingUpdate, MeetingDetail,
-    MeetingStatus
+    MeetingStatus, Task, TaskRead
 )
+from database import get_db
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -25,6 +26,7 @@ async def list_meetings(
     skip: int = 0,
     limit: int = 10,
     status: Optional[MeetingStatus] = None,
+    db: Session = Depends(get_db),
 ):
     """
     获取会议列表
@@ -34,58 +36,51 @@ async def list_meetings(
     - limit: 返回的最大记录数
     - status: 按状态筛选（可选）
     """
-    # db: Session = Depends(get_db)
-    # query = db.query(Meeting)
-    # if status:
-    #     query = query.filter(Meeting.status == status)
-    # meetings = query.offset(skip).limit(limit).all()
-    # return meetings
-    
+    query = select(Meeting)
+    if status:
+        query = query.where(Meeting.status == status)
+
+    total_results = db.execute(
+        select(Meeting).where(Meeting.status == status) if status else select(Meeting)
+    ).scalars().all()
+    total = len(total_results)
+
+    results = db.execute(query.offset(skip).limit(limit)).scalars().all()
+    # 转换为 MeetingRead Pydantic 模型，避免 ORM 关系导致序列化失败
+    meetings_list = [MeetingRead.model_validate(m) for m in results]
+
     return {
-        "total": 0,
+        "total": total,
         "skip": skip,
         "limit": limit,
-        "meetings": []
+        "meetings": meetings_list,
     }
 
 
 @router.get("/meetings/{meeting_id}", response_model=MeetingDetail)
-async def get_meeting(meeting_id: int):
+async def get_meeting(meeting_id: int, db: Session = Depends(get_db)):
     """
     获取单个会议详情
     """
-    # meeting = db.get(Meeting, meeting_id)
-    # if not meeting:
-    #     raise HTTPException(status_code=404, detail="会议不存在")
-    # return meeting
-    
-    raise HTTPException(status_code=404, detail="会议不存在")
+    meeting = db.get(Meeting, meeting_id)
+    if not meeting:
+        raise HTTPException(status_code=404, detail="会议不存在")
+    return meeting
 
 
 @router.post("/meetings", response_model=MeetingRead)
-async def create_meeting(meeting: MeetingCreate):
+async def create_meeting(meeting: MeetingCreate, db: Session = Depends(get_db)):
     """
-    创建新会议
+    创建新会议并持久化到数据库
     """
-    # db_meeting = Meeting(**meeting.dict())
-    # db.add(db_meeting)
-    # db.commit()
-    # db.refresh(db_meeting)
-    # return db_meeting
-    
-    return {
-        "id": 1,
-        "title": meeting.title,
-        "description": meeting.description,
-        "start_time": meeting.start_time,
-        "end_time": meeting.end_time,
-        "duration": 0,
-        "location": meeting.location,
-        "status": MeetingStatus.SCHEDULED,
-        "owner_id": 1,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
-    }
+    db_meeting = Meeting(**meeting.dict())
+    # 默认 owner_id 为 1（若需真实用户，应由认证上下文提供）
+    if not getattr(db_meeting, 'owner_id', None):
+        db_meeting.owner_id = 1
+    db.add(db_meeting)
+    db.commit()
+    db.refresh(db_meeting)
+    return db_meeting
 
 
 @router.put("/meetings/{meeting_id}", response_model=MeetingRead)
@@ -217,6 +212,35 @@ async def get_transcribe_status(meeting_id: int, task_id: str):
         "status": "pending",
         "progress": 0,
     }
+
+
+@router.get("/meetings/{meeting_id}/tasks", response_model=list[TaskRead])
+async def get_meeting_tasks(meeting_id: int, db: Session = Depends(get_db)):
+    """
+    获取特定会议的任务列表（从数据库查询）
+    """
+    from sqlmodel import select
+
+    query = select(Task).where(Task.meeting_id == meeting_id)
+    results = db.exec(query).all()
+    return results
+
+
+@router.post("/meetings/{meeting_id}/tasks", response_model="TaskRead")
+async def create_meeting_task(meeting_id: int, body: dict, db: "Session" = Depends(get_db)):
+    """
+    为指定会议创建任务（兼容前端直接 POST 到 /meetings/{id}/tasks 的调用）
+    请求体示例：{ "title": "任务标题", "description": "...", "due_date": "2026-02-20T00:00:00Z", "priority": "medium", "assignee_id": 2 }
+    """
+    # 确保使用路径中的 meeting_id，忽略或覆盖 body 中的 meeting_id
+    body = dict(body)
+    body['meeting_id'] = meeting_id
+    # 创建并持久化任务
+    db_task = Task(**body)
+    db.add(db_task)
+    db.commit()
+    db.refresh(db_task)
+    return db_task
 
 
 # ==================== 会议分析 ====================
