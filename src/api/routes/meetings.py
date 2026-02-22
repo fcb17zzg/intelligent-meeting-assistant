@@ -84,20 +84,27 @@ async def create_meeting(meeting: MeetingCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/meetings/{meeting_id}", response_model=MeetingRead)
-async def update_meeting(meeting_id: int, meeting: MeetingUpdate):
+async def update_meeting(
+    meeting_id: int,
+    meeting: MeetingUpdate,
+    db: Session = Depends(get_db),
+):
     """
     更新会议信息
     """
-    # db_meeting = db.get(Meeting, meeting_id)
-    # if not db_meeting:
-    #     raise HTTPException(status_code=404, detail="会议不存在")
-    # db_meeting.update(meeting.dict(exclude_unset=True))
-    # db.add(db_meeting)
-    # db.commit()
-    # db.refresh(db_meeting)
-    # return db_meeting
-    
-    return {"id": meeting_id, **meeting.dict()}
+    db_meeting = db.get(Meeting, meeting_id)
+    if not db_meeting:
+        raise HTTPException(status_code=404, detail="会议不存在")
+
+    update_data = meeting.model_dump(exclude_unset=True)
+    for field_name, value in update_data.items():
+        setattr(db_meeting, field_name, value)
+
+    db_meeting.updated_at = datetime.utcnow()
+    db.add(db_meeting)
+    db.commit()
+    db.refresh(db_meeting)
+    return db_meeting
 
 
 @router.delete("/meetings/{meeting_id}")

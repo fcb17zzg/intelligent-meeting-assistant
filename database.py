@@ -4,7 +4,7 @@
 """
 import os
 from typing import Optional
-from sqlalchemy import create_engine, Engine
+from sqlalchemy import create_engine, Engine, text
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel
@@ -58,7 +58,27 @@ def init_db():
     创建所有表
     """
     SQLModel.metadata.create_all(engine)
+    ensure_schema_compatibility()
     print("✓ 数据库初始化成功")
+
+
+def ensure_schema_compatibility() -> None:
+    """轻量级Schema兼容修复（针对已有数据库的增量字段）"""
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+
+    with engine.begin() as conn:
+        table_exists = conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='meetings'")
+        ).first()
+        if not table_exists:
+            return
+
+        rows = conn.execute(text("PRAGMA table_info(meetings)")).fetchall()
+        column_names = {row[1] for row in rows}
+
+        if "participants" not in column_names:
+            conn.execute(text("ALTER TABLE meetings ADD COLUMN participants INTEGER"))
 
 
 def get_engine() -> Engine:

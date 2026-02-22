@@ -78,11 +78,12 @@ export const useMeetingStore = defineStore('meeting', () => {
     try {
       const response = await meetingAPI.updateMeeting(meetingId, meetingData)
       const updated = response.data || response
-      const index = meetings.value.findIndex((m) => m.id === meetingId)
+      const normalizedId = Number(meetingId)
+      const index = meetings.value.findIndex((m) => m.id === normalizedId)
       if (index !== -1) {
         meetings.value[index] = updated
       }
-      if (currentMeeting.value?.id === meetingId) {
+      if (currentMeeting.value?.id === normalizedId) {
         currentMeeting.value = updated
       }
       return updated
@@ -100,8 +101,9 @@ export const useMeetingStore = defineStore('meeting', () => {
     error.value = null
     try {
       await meetingAPI.deleteMeeting(meetingId)
-      meetings.value = meetings.value.filter((m) => m.id !== meetingId)
-      if (currentMeeting.value?.id === meetingId) {
+      const normalizedId = Number(meetingId)
+      meetings.value = meetings.value.filter((m) => m.id !== normalizedId)
+      if (currentMeeting.value?.id === normalizedId) {
         currentMeeting.value = null
       }
     } catch (err) {

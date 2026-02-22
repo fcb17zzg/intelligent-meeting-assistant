@@ -110,6 +110,7 @@ class MeetingBase(SQLModel):
     start_time: datetime
     end_time: Optional[datetime] = None
     duration: Optional[float] = None  # 秒
+    participants: Optional[int] = None
     location: Optional[str] = None
 
 
@@ -145,6 +146,8 @@ class MeetingUpdate(SQLModel):
     """更新会议请求"""
     title: Optional[str] = None
     description: Optional[str] = None
+    duration: Optional[float] = None
+    participants: Optional[int] = None
     status: Optional[MeetingStatus] = None
     summary: Optional[str] = None
     key_topics: Optional[str] = None

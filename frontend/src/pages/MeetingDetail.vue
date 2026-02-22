@@ -187,7 +187,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMeetingStore } from '@/stores/meetingStore'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -201,7 +201,7 @@ const route = useRoute()
 const router = useRouter()
 const meetingStore = useMeetingStore()
 
-const meeting = meetingStore.currentMeeting
+const meeting = computed(() => meetingStore.currentMeeting)
 const summary = ref(null)
 const tasks = ref([])
 const showEditDialog = ref(false)
