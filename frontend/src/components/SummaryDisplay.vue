@@ -4,36 +4,36 @@
     <el-skeleton v-if="loading" :rows="5" animated />
 
     <!-- 摘要内容 -->
-    <div v-else-if="summary" class="summary-content">
+    <div v-else-if="displayedSummary" class="summary-content">
       <!-- 会议信息 -->
       <div class="summary-header">
-        <h3>{{ summary.title || '会议摘要' }}</h3>
+        <h3>{{ displayedSummary.title || '会议摘要' }}</h3>
         <div class="summary-meta">
-          <el-tag v-if="summary.duration" type="info">
-            ⏱️ {{ formatDuration(summary.duration) }}
+          <el-tag v-if="displayedSummary.duration" type="info">
+            ⏱️ {{ formatDuration(displayedSummary.duration) }}
           </el-tag>
-          <el-tag v-if="summary.created_at" type="warning">
-            📅 {{ formatDate(summary.created_at) }}
+          <el-tag v-if="displayedSummary.created_at" type="warning">
+            📅 {{ formatDate(displayedSummary.created_at) }}
           </el-tag>
-          <el-tag v-if="summary.speaker_count">
-            👥 {{ summary.speaker_count }} 位发言人
+          <el-tag v-if="displayedSummary.speaker_count">
+            👥 {{ displayedSummary.speaker_count }} 位发言人
           </el-tag>
         </div>
       </div>
 
       <!-- 主要内容摘要 -->
-      <div v-if="summary.summary_text" class="summary-section">
+      <div v-if="displayedSummary.summary_text" class="summary-section">
         <h4>📝 会议纪要</h4>
         <div class="summary-text">
-          {{ summary.summary_text }}
+          {{ displayedSummary.summary_text }}
         </div>
       </div>
 
       <!-- 关键议题 -->
-      <div v-if="summary.key_topics && summary.key_topics.length" class="summary-section">
+      <div v-if="displayedSummary.key_topics && displayedSummary.key_topics.length" class="summary-section">
         <h4>🎯 关键议题</h4>
         <ul class="topics-list">
-          <li v-for="(topic, index) in summary.key_topics" :key="index">
+          <li v-for="(topic, index) in displayedSummary.key_topics" :key="index">
             {{ topic }}
           </li>
         </ul>
@@ -41,12 +41,12 @@
 
       <!-- 重点突出 -->
       <div
-        v-if="summary.highlights && summary.highlights.length"
+        v-if="displayedSummary.highlights && displayedSummary.highlights.length"
         class="summary-section"
       >
         <h4>⭐ 重点突出</h4>
         <div class="highlights-list">
-          <div v-for="(highlight, index) in summary.highlights" :key="index" class="highlight-item">
+          <div v-for="(highlight, index) in displayedSummary.highlights" :key="index" class="highlight-item">
             <span class="highlight-mark">•</span>
             {{ highlight }}
           </div>
@@ -55,12 +55,12 @@
 
       <!-- 行动项 -->
       <div
-        v-if="summary.action_items && summary.action_items.length"
+        v-if="displayedSummary.action_items && displayedSummary.action_items.length"
         class="summary-section"
       >
         <h4>✅ 行动项</h4>
         <div class="action-items-list">
-          <div v-for="(item, index) in summary.action_items" :key="index" class="action-item">
+          <div v-for="(item, index) in displayedSummary.action_items" :key="index" class="action-item">
             <el-checkbox v-model="item.completed" @change="updateActionItem(item)">
               {{ item.text }}
             </el-checkbox>
@@ -72,20 +72,20 @@
 
       <!-- 发言人统计 -->
       <div
-        v-if="summary.speaker_stats && Object.keys(summary.speaker_stats).length"
+        v-if="displayedSummary.speaker_stats && Object.keys(displayedSummary.speaker_stats).length"
         class="summary-section"
       >
         <h4>🎤 发言人统计</h4>
         <div class="speaker-stats">
           <div
-            v-for="(count, speaker) in summary.speaker_stats"
+            v-for="(count, speaker) in displayedSummary.speaker_stats"
             :key="speaker"
             class="speaker-stat"
           >
             <div class="speaker-name">{{ speaker }}</div>
             <el-progress
-              :percentage="calculatePercentage(count, summary.speaker_stats)"
-              :color="getProgressColor(count, summary.speaker_stats)"
+              :percentage="calculatePercentage(count, displayedSummary.speaker_stats)"
+              :color="getProgressColor(count, displayedSummary.speaker_stats)"
               :show-text="true"
             />
           </div>
@@ -109,12 +109,12 @@
       <div class="summary-section">
         <h4>📌 笔记</h4>
         <div v-if="!editingNotes" class="notes-display">
-          <p v-if="summary.notes">{{ summary.notes }}</p>
+          <p v-if="displayedSummary.notes">{{ displayedSummary.notes }}</p>
           <p v-else style="color: #909399">暂无笔记</p>
         </div>
         <div v-else class="notes-edit">
           <el-input
-            v-model="summary.notes"
+            v-model="displayedSummary.notes"
             type="textarea"
             rows="4"
             placeholder="添加笔记..."
@@ -159,7 +159,37 @@ const editingNotes = ref(false)
 const localLoading = ref(false)
 const localSummary = ref(null)
 
-const displayedSummary = computed(() => props.summary || localSummary.value)
+const displayedSummary = computed(() => {
+  const remote = props.summary || null
+  const local = localSummary.value || null
+
+  const normalizedRemote = remote
+    ? {
+        ...remote,
+        summary_text: remote.summary_text || remote.summary || '',
+        title: remote.title || '会议摘要',
+      }
+    : null
+
+  const localHasContent = !!(
+    local &&
+    (
+      (local.summary_text && String(local.summary_text).trim()) ||
+      (Array.isArray(local.key_topics) && local.key_topics.length > 0) ||
+      (Array.isArray(local.highlights) && local.highlights.length > 0) ||
+      (Array.isArray(local.action_items) && local.action_items.length > 0)
+    )
+  )
+
+  if (localHasContent) {
+    return {
+      ...(normalizedRemote || {}),
+      ...local,
+    }
+  }
+
+  return normalizedRemote || local
+})
 
 // 当收到转录数据时自动触发 NLP 分析和摘要生成
 watch(
@@ -170,7 +200,12 @@ watch(
       localLoading.value = true
 
       const segments = newVal.segments || []
-      const fullText = newVal.text || segments.map((s) => s.text || '').join(' ')
+      const segmentsText = segments
+        .map((s) => (s && s.text ? String(s.text).trim() : ''))
+        .filter((t) => t)
+        .join(' ')
+      const textFromResult = newVal.text ? String(newVal.text).trim() : ''
+      const fullText = textFromResult || segmentsText
 
       // 并行请求：处理转录（实体/关键词/句子级分析）与摘要
       const [processedResp, summaryResp] = await Promise.all([
@@ -184,7 +219,11 @@ watch(
         duration: newVal.duration || null,
         created_at: newVal.transcription_time || newVal.created_at || null,
         speaker_count: processedResp.segments ? processedResp.segments.length : (newVal.speaker_count || 0),
-        summary_text: summaryResp.summary || summaryResp.summary_text || '',
+        summary_text: (
+          (summaryResp.summary && String(summaryResp.summary).trim()) ||
+          (summaryResp.summary_text && String(summaryResp.summary_text).trim()) ||
+          ''
+        ),
         key_topics: processedResp.segments ? [] : [],
         highlights: [],
         action_items: [],
@@ -294,7 +333,7 @@ const generateSummaryText = () => {
 }
 
 const saveNotes = () => {
-  emit('update-notes', props.summary.notes)
+  emit('update-notes', displayedSummary.value?.notes || '')
   editingNotes.value = false
   ElMessage.success('笔记已保存')
 }

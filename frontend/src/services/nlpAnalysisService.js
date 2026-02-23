@@ -28,7 +28,7 @@ export const nlpAnalysisService = {
    * @param {string} method - 提取方法
    * @returns {Promise}
    */
-  async extractKeywords(text, topK = 10, language = 'zh', method = 'keybert') {
+  async extractKeywords(text, topK = 10, language = 'zh', method = 'textrank') {
     return client.post('/nlp/extract-keywords', {
       text,
       top_k: topK,

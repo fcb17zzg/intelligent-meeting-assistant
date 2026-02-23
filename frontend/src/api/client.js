@@ -43,8 +43,23 @@ client.interceptors.response.use(
     if (status === 403) {
       console.warn('权限不足:', data?.detail)
     }
-    
-    return Promise.reject(data || error.message)
+
+    let message = '请求失败'
+    if (error.code === 'ECONNABORTED') {
+      message = '请求超时，请检查网络或稍后重试'
+    } else if (typeof data?.detail === 'string' && data.detail.trim()) {
+      message = data.detail
+    } else if (typeof data?.message === 'string' && data.message.trim()) {
+      message = data.message
+    } else if (typeof error.message === 'string' && error.message.trim()) {
+      message = error.message
+    }
+
+    const normalizedError = new Error(message)
+    normalizedError.status = status
+    normalizedError.data = data
+
+    return Promise.reject(normalizedError)
   }
 )
 

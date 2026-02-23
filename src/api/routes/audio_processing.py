@@ -135,8 +135,33 @@ async def transcribe_audio(
             
             logger.info(f"转录成功: {resolved_file_id}")
             
+            # 统一分段格式（兼容 dict 与对象）
+            def _normalize_segment(seg, default_speaker: str = 'SPEAKER_00'):
+                if isinstance(seg, dict):
+                    start = seg.get('start', seg.get('start_time', 0))
+                    end = seg.get('end', seg.get('end_time', 0))
+                    speaker = seg.get('speaker', default_speaker)
+                    text = seg.get('text', '')
+                else:
+                    start = getattr(seg, 'start', getattr(seg, 'start_time', 0))
+                    end = getattr(seg, 'end', getattr(seg, 'end_time', 0))
+                    speaker = getattr(seg, 'speaker', default_speaker)
+                    text = getattr(seg, 'text', '')
+
+                return {
+                    'start': float(start or 0),
+                    'end': float(end or 0),
+                    'speaker': str(speaker or default_speaker),
+                    'text': str(text or ''),
+                }
+
+            transcription_segments = [
+                _normalize_segment(seg)
+                for seg in (result.segments if hasattr(result, 'segments') and result.segments else [])
+            ]
+
             # 如果需要的话，进行说话人分离
-            segments = result.segments if hasattr(result, 'segments') else []
+            segments = transcription_segments
             
             if resolved_speaker_diarization and hasattr(result, 'segments'):
                 try:
@@ -145,15 +170,40 @@ async def transcribe_audio(
                     dia_client = DiarizationClient()
                     dia_result = dia_client.process_audio(str(file_path))
                     
-                    # 合并转录和说话人分离结果
+                    # 合并转录和说话人分离结果（保留转录文本，用分离结果补充speaker）
                     if dia_result:
-                        segments = dia_result
+                        diarization_segments = [_normalize_segment(seg) for seg in dia_result]
+
+                        if transcription_segments:
+                            for trans_seg in transcription_segments:
+                                ts = trans_seg['start']
+                                te = trans_seg['end']
+                                best_speaker = trans_seg['speaker']
+                                best_overlap = 0.0
+
+                                for dia_seg in diarization_segments:
+                                    ds = dia_seg['start']
+                                    de = dia_seg['end']
+                                    overlap = max(0.0, min(te, de) - max(ts, ds))
+                                    if overlap > best_overlap:
+                                        best_overlap = overlap
+                                        best_speaker = dia_seg['speaker']
+
+                                trans_seg['speaker'] = best_speaker
+
+                            segments = transcription_segments
+                        else:
+                            segments = diarization_segments
+
                         logger.info(f"说话人分离成功: {len(segments)} 个分段")
                 
                 except Exception as e:
                     logger.warning(f"说话人分离失败: {e}")
             
             transcription_text = result.text if hasattr(result, "text") else (str(result) if result else "")
+            if (not transcription_text or not str(transcription_text).strip()) and segments:
+                segment_texts = [str(seg.get('text', '')).strip() if isinstance(seg, dict) else str(getattr(seg, 'text', '')).strip() for seg in segments]
+                transcription_text = " ".join([t for t in segment_texts if t])
 
             return {
                 "transcription_id": f"{resolved_file_id}_transcription",
@@ -162,12 +212,7 @@ async def transcribe_audio(
                 "language": resolved_language,
                 "text": transcription_text,
                 "segments": [
-                    {
-                        "start": getattr(seg, 'start_time', 0),
-                        "end": getattr(seg, 'end_time', 0),
-                        "speaker": getattr(seg, 'speaker', 'SPEAKER_00'),
-                        "text": getattr(seg, 'text', '')
-                    }
+                    _normalize_segment(seg)
                     for seg in segments
                 ] if segments else [],
                 "transcription_time": datetime.utcnow().isoformat(),

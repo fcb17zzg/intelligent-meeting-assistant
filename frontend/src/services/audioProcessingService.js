@@ -34,12 +34,18 @@ export const audioProcessingService = {
    * @returns {Promise}
    */
   async transcribeAudio(fileId, language = 'auto', speakerDiarization = true, context = null) {
-    return client.post('/audio/transcribe', {
-      file_id: fileId,
-      language,
-      speaker_diarization: speakerDiarization,
-      context,
-    })
+    return client.post(
+      '/audio/transcribe',
+      {
+        file_id: fileId,
+        language,
+        speaker_diarization: speakerDiarization,
+        context,
+      },
+      {
+        timeout: 10 * 60 * 1000,
+      }
+    )
   },
 
   /**

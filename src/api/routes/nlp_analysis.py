@@ -22,7 +22,7 @@ class ExtractKeywordsRequest(BaseModel):
     text: str
     top_k: int = 10
     language: str = "zh"
-    method: str = "keybert"
+    method: str = "textrank"
 
 
 class AnalyzeSentimentRequest(BaseModel):
@@ -34,6 +34,12 @@ class AnalyzeTopicsRequest(BaseModel):
     documents: List[str]
     language: str = "zh"
     num_topics: int = 5
+
+
+class TextSummarizationRequest(BaseModel):
+    text: str
+    summary_length: str = "medium"
+    language: str = "zh"
 
 
 class ProcessTranscriptRequest(BaseModel):
@@ -152,7 +158,7 @@ async def extract_keywords(
         resolved_text = request.text if request and request.text else text
         resolved_top_k = request.top_k if request else (top_k if top_k is not None else 10)
         resolved_language = request.language if request else (language or "zh")
-        resolved_method = request.method if request else (method or "keybert")
+        resolved_method = request.method if request else (method or "textrank")
 
         if resolved_text is None:
             resolved_text = ""
@@ -162,7 +168,7 @@ async def extract_keywords(
         try:
             from src.nlp_processing.topic_analyzer import TopicAnalyzer
             
-            analyzer = TopicAnalyzer(config={'language': resolved_language})
+            analyzer = TopicAnalyzer(config={'language': resolved_language, 'method': resolved_method})
             keywords = analyzer.extract_keywords(resolved_text, top_k=resolved_top_k)
             
             logger.info(f"提取关键词成功: {len(keywords)} 个关键词")
@@ -372,9 +378,10 @@ async def analyze_topics(
 
 @router.post("/nlp/text-summarization")
 async def text_summarization(
-    text: str,
-    summary_length: str = "medium",
-    language: str = "zh",
+    request: Optional[TextSummarizationRequest] = Body(None),
+    text: Optional[str] = None,
+    summary_length: Optional[str] = None,
+    language: Optional[str] = None,
 ):
     """
     文本摘要生成
@@ -388,22 +395,29 @@ async def text_summarization(
     - summary: 生成的摘要
     """
     try:
-        logger.info(f"开始生成摘要，摘要长度: {summary_length}")
+        resolved_text = request.text if request and request.text else text
+        resolved_summary_length = request.summary_length if request else (summary_length or "medium")
+        resolved_language = request.language if request else (language or "zh")
+
+        if resolved_text is None:
+            resolved_text = ""
+
+        logger.info(f"开始生成摘要，摘要长度: {resolved_summary_length}")
         
         try:
             from src.nlp_processing.llm_client import LLMClient
             
-            client = LLMClient(language=language)
-            summary = client.summarize(text, summary_length=summary_length)
+            client = LLMClient(language=resolved_language)
+            summary = client.summarize(resolved_text, summary_length=resolved_summary_length)
             
             logger.info(f"摘要生成成功")
             
             return {
                 "status": "success",
-                "original_length": len(text),
+                "original_length": len(resolved_text),
                 "summary": summary,
-                "summary_length": summary_length,
-                "language": language,
+                "summary_length": resolved_summary_length,
+                "language": resolved_language,
                 "processed_at": datetime.utcnow().isoformat(),
             }
         
@@ -412,10 +426,10 @@ async def text_summarization(
             logger.warning("NLP模块不可用，返回模拟结果")
             
             # 生成简单的摘要
-            sentences = text.split('。')
-            if summary_length == "short":
+            sentences = resolved_text.split('。')
+            if resolved_summary_length == "short":
                 num_sentences = max(1, len(sentences) // 4)
-            elif summary_length == "long":
+            elif resolved_summary_length == "long":
                 num_sentences = max(1, len(sentences) // 2)
             else:  # medium
                 num_sentences = max(1, len(sentences) // 3)
@@ -424,10 +438,10 @@ async def text_summarization(
             
             return {
                 "status": "success",
-                "original_length": len(text),
+                "original_length": len(resolved_text),
                 "summary": summary,
-                "summary_length": summary_length,
-                "language": language,
+                "summary_length": resolved_summary_length,
+                "language": resolved_language,
                 "processed_at": datetime.utcnow().isoformat(),
             }
     
