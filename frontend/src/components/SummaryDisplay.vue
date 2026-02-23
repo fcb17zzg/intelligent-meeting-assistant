@@ -100,7 +100,7 @@
         <el-button @click="refreshSummary">
           🔄 刷新
         </el-button>
-        <el-button v-if="!editingNotes" @click="editingNotes = true">
+        <el-button v-if="!editingNotes" @click="startEditNotes">
           ✏️ 编辑笔记
         </el-button>
       </div>
@@ -114,14 +114,14 @@
         </div>
         <div v-else class="notes-edit">
           <el-input
-            v-model="displayedSummary.notes"
+            v-model="editableNotes"
             type="textarea"
             rows="4"
             placeholder="添加笔记..."
           />
           <div style="margin-top: 12px; display: flex; gap: 8px">
             <el-button type="primary" @click="saveNotes">保存</el-button>
-            <el-button @click="editingNotes = false">取消</el-button>
+            <el-button @click="cancelEditNotes">取消</el-button>
           </div>
         </div>
       </div>
@@ -158,6 +158,7 @@ const emit = defineEmits(['update-notes', 'refresh'])
 const editingNotes = ref(false)
 const localLoading = ref(false)
 const localSummary = ref(null)
+const editableNotes = ref('')
 
 const displayedSummary = computed(() => {
   const remote = props.summary || null
@@ -175,6 +176,7 @@ const displayedSummary = computed(() => {
     local &&
     (
       (local.summary_text && String(local.summary_text).trim()) ||
+      (local.notes && String(local.notes).trim()) ||
       (Array.isArray(local.key_topics) && local.key_topics.length > 0) ||
       (Array.isArray(local.highlights) && local.highlights.length > 0) ||
       (Array.isArray(local.action_items) && local.action_items.length > 0)
@@ -345,8 +347,32 @@ const generateSummaryText = () => {
   return text
 }
 
+const ensureLocalSummary = () => {
+  if (localSummary.value) return
+
+  const remote = props.summary || {}
+  localSummary.value = {
+    ...remote,
+    summary_text: remote.summary_text || remote.summary || '',
+    title: remote.title || '会议摘要',
+    notes: remote.notes || '',
+  }
+}
+
+const startEditNotes = () => {
+  editableNotes.value = displayedSummary.value?.notes || ''
+  editingNotes.value = true
+}
+
+const cancelEditNotes = () => {
+  editableNotes.value = displayedSummary.value?.notes || ''
+  editingNotes.value = false
+}
+
 const saveNotes = () => {
-  emit('update-notes', displayedSummary.value?.notes || '')
+  ensureLocalSummary()
+  localSummary.value.notes = editableNotes.value || ''
+  emit('update-notes', localSummary.value.notes)
   editingNotes.value = false
   ElMessage.success('笔记已保存')
 }
