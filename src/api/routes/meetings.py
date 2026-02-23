@@ -13,7 +13,7 @@ from pathlib import Path
 
 from models import (
     Meeting, MeetingRead, MeetingCreate, MeetingUpdate, MeetingDetail,
-    MeetingStatus, Task, TaskRead
+    MeetingStatus, Task, TaskRead, TranscriptSegment, Comment
 )
 from database import get_db
 
@@ -126,16 +126,51 @@ async def update_meeting(
 
 
 @router.delete("/meetings/{meeting_id}")
-async def delete_meeting(meeting_id: int):
+async def delete_meeting(meeting_id: int, db: Session = Depends(get_db)):
     """
     删除会议
     """
-    # db_meeting = db.get(Meeting, meeting_id)
-    # if not db_meeting:
-    #     raise HTTPException(status_code=404, detail="会议不存在")
-    # db.delete(db_meeting)
-    # db.commit()
-    
+    db_meeting = db.get(Meeting, meeting_id)
+    if not db_meeting:
+        raise HTTPException(status_code=404, detail="会议不存在")
+
+    try:
+        task_ids = db.execute(
+            select(Task.id).where(Task.meeting_id == meeting_id)
+        ).scalars().all()
+
+        if task_ids:
+            task_comments = db.execute(
+                select(Comment).where(Comment.task_id.in_(task_ids))
+            ).scalars().all()
+            for comment in task_comments:
+                db.delete(comment)
+
+        meeting_comments = db.execute(
+            select(Comment).where(Comment.meeting_id == meeting_id)
+        ).scalars().all()
+        for comment in meeting_comments:
+            db.delete(comment)
+
+        segments = db.execute(
+            select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting_id)
+        ).scalars().all()
+        for segment in segments:
+            db.delete(segment)
+
+        tasks = db.execute(
+            select(Task).where(Task.meeting_id == meeting_id)
+        ).scalars().all()
+        for task in tasks:
+            db.delete(task)
+
+        db.delete(db_meeting)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.error(f"删除会议失败 meeting_id={meeting_id}: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail="删除会议失败")
+
     return {"message": f"会议 {meeting_id} 已删除"}
 
 
