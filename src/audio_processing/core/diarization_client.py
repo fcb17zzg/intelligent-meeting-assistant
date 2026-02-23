@@ -4,6 +4,7 @@
 """
 import os
 import sys
+import inspect
 from pathlib import Path
 import logging
 from typing import List, Optional, Tuple, Dict, Any
@@ -11,8 +12,6 @@ from dataclasses import dataclass
 import warnings
 
 import torch
-from pyannote.audio import Pipeline
-from pyannote.core import Segment
 import numpy as np
 
 from ..models.transcription_result import SpeakerSegment
@@ -124,27 +123,10 @@ class DiarizationClient:
             
             # 加载pipeline - 修复版本兼容性问题
             from pyannote.audio import Pipeline
-            
-            # 尝试两种方式加载，处理不同版本的huggingface-hub
-            try:
-                # 方式1：新版本（使用token参数）
-                self.pipeline = Pipeline.from_pretrained(
-                    self.config.model_name,
-                    token=self.config.use_auth_token
-                )
-            except TypeError as e:
-                if "token" in str(e):
-                    # 方式2：旧版本（使用use_auth_token参数）
-                    self.pipeline = Pipeline.from_pretrained(
-                        self.config.model_name,
-                        use_auth_token=self.config.use_auth_token
-                    )
-                else:
-                    raise
+            self.pipeline = self._load_pipeline_with_compat(Pipeline)
             
             # 设置设备
-            if HAS_TORCH:
-                self.pipeline.to(torch.device(self.config.device))
+            self.pipeline.to(torch.device(self.config.device))
             
             # 设置pipeline参数
             pipeline_params = {
@@ -181,6 +163,33 @@ class DiarizationClient:
             self._is_initialized = True
             logger.warning("已切换到降级模式（固定分段）")
             return True
+
+    def _load_pipeline_with_compat(self, pipeline_cls):
+        """兼容不同版本 pyannote/huggingface_hub 的 pipeline 加载。"""
+        auth_token = self.config.use_auth_token
+        from_pretrained = pipeline_cls.from_pretrained
+
+        try:
+            signature = inspect.signature(from_pretrained)
+            params = signature.parameters
+        except Exception:
+            params = {}
+
+        kwargs = {}
+        if auth_token:
+            if "token" in params:
+                kwargs["token"] = auth_token
+            elif "use_auth_token" in params:
+                kwargs["use_auth_token"] = auth_token
+
+        try:
+            return from_pretrained(self.config.model_name, **kwargs)
+        except TypeError as type_error:
+            error_text = str(type_error)
+            if any(key in error_text for key in ["use_auth_token", "token", "hf_hub_download"]):
+                logger.warning(f"检测到Hub参数兼容问题，尝试无鉴权参数重试: {type_error}")
+                return from_pretrained(self.config.model_name)
+            raise
     
     def process_audio(
         self,

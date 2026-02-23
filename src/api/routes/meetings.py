@@ -2,7 +2,9 @@
 会议相关API路由
 """
 import os
+import json
 import logging
+import re
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
@@ -17,6 +19,22 @@ from database import get_db
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _split_sentences(text: str) -> list[str]:
+    if not text:
+        return []
+    return [s.strip(" ，,\t") for s in re.split(r"[。！？!?；;\n\r]+", text) if s and s.strip(" ，,\t")]
+
+
+def _summarize_extractive(text: str, max_sentences: int = 3) -> str:
+    sentences = _split_sentences(text)
+    if not sentences:
+        return ""
+    summary = "。".join(sentences[:max_sentences])
+    if summary and not summary.endswith(("。", "！", "？", ".", "!", "?")):
+        summary += "。"
+    return summary
 
 
 # ==================== 会议CRUD操作 ====================
@@ -124,15 +142,70 @@ async def delete_meeting(meeting_id: int):
 # ==================== 会议内容处理 ====================
 
 @router.get("/meetings/{meeting_id}/summary")
-async def get_meeting_summary(meeting_id: int):
+async def get_meeting_summary(meeting_id: int, db: Session = Depends(get_db)):
     """
     获取会议摘要
     """
+    meeting = db.get(Meeting, meeting_id)
+    if not meeting:
+        raise HTTPException(status_code=404, detail="会议不存在")
+
+    transcript_text = (meeting.transcript_formatted or meeting.transcript_raw or "").strip()
+    segments = list(meeting.segments or [])
+    if not transcript_text and segments:
+        transcript_text = " ".join(
+            [str(getattr(segment, "text", "") or "").strip() for segment in segments if getattr(segment, "text", "")]
+        ).strip()
+
+    summary_text = (meeting.summary or "").strip()
+    if not summary_text and transcript_text:
+        summary_text = _summarize_extractive(transcript_text, max_sentences=4)
+
+    key_topics: list[str] = []
+    if meeting.key_topics:
+        try:
+            parsed_topics = json.loads(meeting.key_topics) if isinstance(meeting.key_topics, str) else meeting.key_topics
+            if isinstance(parsed_topics, list):
+                for topic in parsed_topics:
+                    if isinstance(topic, str):
+                        if topic.strip():
+                            key_topics.append(topic.strip())
+                    elif isinstance(topic, dict):
+                        name = str(topic.get("name", "")).strip()
+                        if name:
+                            key_topics.append(name)
+        except Exception:
+            pass
+
+    if not key_topics and transcript_text:
+        try:
+            from src.nlp_processing.topic_analyzer import TopicAnalyzer
+            analyzer = TopicAnalyzer(config={'language': 'zh', 'method': 'textrank', 'num_topics': 5})
+            topics = analyzer.analyze_meeting_topics(_split_sentences(transcript_text))
+            key_topics = [topic.get("name") for topic in topics if topic.get("name")][:5]
+        except Exception as topic_error:
+            logger.warning(f"会议摘要议题提取失败，使用句子回退: {topic_error}")
+
+    if not key_topics and transcript_text:
+        key_topics = _split_sentences(transcript_text)[:5]
+
+    speaker_stats = {}
+    for segment in segments:
+        speaker = str(getattr(segment, "speaker", "Unknown") or "Unknown")
+        speaker_stats[speaker] = speaker_stats.get(speaker, 0) + 1
+
     return {
         "meeting_id": meeting_id,
-        "summary": "这是会议摘要示例",
-        "summary_type": "abstractive",
-        "generated_at": datetime.utcnow(),
+        "title": meeting.title or "会议摘要",
+        "summary": summary_text,
+        "summary_text": summary_text,
+        "summary_type": meeting.summary_type or "extractive",
+        "key_topics": key_topics,
+        "speaker_stats": speaker_stats,
+        "speaker_count": len(speaker_stats),
+        "duration": meeting.duration,
+        "created_at": meeting.created_at,
+        "generated_at": datetime.utcnow().isoformat(),
     }
 
 

@@ -3,6 +3,8 @@ NLP分析API路由
 集成NLP处理模块的功能
 """
 import logging
+import re
+from collections import Counter
 from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Body
@@ -50,6 +52,138 @@ class ProcessTranscriptRequest(BaseModel):
     analyze_sentiment: bool = True
 
 
+def _split_sentences(text: str) -> List[str]:
+    if not text:
+        return []
+    parts = re.split(r"[。！？!?；;\n\r]+", text)
+    return [p.strip(" ，,\t") for p in parts if p and p.strip(" ，,\t")]
+
+
+def _tokenize_text(text: str) -> List[str]:
+    try:
+        import jieba
+        return [token.strip() for token in jieba.lcut(text) if token and len(token.strip()) >= 2]
+    except Exception:
+        return re.findall(r"[\u4e00-\u9fff]{2,}|[A-Za-z]{3,}", text)
+
+
+def _summarize_extractive(text: str, summary_length: str = "medium") -> str:
+    text = (text or "").strip()
+    if not text:
+        return ""
+
+    sentences = _split_sentences(text)
+    if not sentences:
+        return text[:200] + ("..." if len(text) > 200 else "")
+
+    ratio_map = {
+        "short": 0.2,
+        "medium": 0.35,
+        "long": 0.5,
+    }
+    ratio = ratio_map.get(summary_length, 0.35)
+    target_count = max(1, min(len(sentences), int(len(sentences) * ratio + 0.5)))
+
+    token_freq = Counter(_tokenize_text(text))
+    scored_sentences = []
+    for index, sentence in enumerate(sentences):
+        sentence_tokens = _tokenize_text(sentence)
+        lexical_score = float(sum(token_freq.get(token, 0) for token in sentence_tokens))
+        position_bonus = max(0.0, (len(sentences) - index) * 0.05)
+        scored_sentences.append((lexical_score + position_bonus, index, sentence))
+
+    top_sentences = sorted(scored_sentences, key=lambda item: item[0], reverse=True)[:target_count]
+    top_sentences = sorted(top_sentences, key=lambda item: item[1])
+    summary = "。".join(item[2] for item in top_sentences)
+    if summary and not summary.endswith(("。", "！", "？", ".", "!", "?")):
+        summary += "。"
+    return summary
+
+
+def _extract_entities_from_text(text: str, language: str = "zh") -> List[dict]:
+    text = (text or "").strip()
+    if not text:
+        return []
+
+    entities: List[dict] = []
+    seen = set()
+
+    try:
+        from src.nlp_processing.entity_extractor import EntityExtractor
+
+        extractor = EntityExtractor(config={'language': language})
+        extracted = extractor.extract_all(text)
+
+        for name in extracted.get("names", []):
+            name_text = str(name).strip()
+            if not name_text:
+                continue
+            key = (name_text, "PERSON")
+            if key in seen:
+                continue
+            seen.add(key)
+            start = text.find(name_text)
+            entities.append({
+                "text": name_text,
+                "type": "PERSON",
+                "start": max(0, start),
+                "end": max(0, start + len(name_text)) if start >= 0 else len(name_text),
+                "confidence": 0.8,
+            })
+
+        for org in extracted.get("organizations", []):
+            org_text = str(org).strip()
+            if not org_text:
+                continue
+            key = (org_text, "ORG")
+            if key in seen:
+                continue
+            seen.add(key)
+            start = text.find(org_text)
+            entities.append({
+                "text": org_text,
+                "type": "ORG",
+                "start": max(0, start),
+                "end": max(0, start + len(org_text)) if start >= 0 else len(org_text),
+                "confidence": 0.78,
+            })
+
+        for date_info in extracted.get("dates", []):
+            date_text = str(date_info.get("text", "")).strip()
+            if not date_text:
+                continue
+            key = (date_text, "DATE")
+            if key in seen:
+                continue
+            seen.add(key)
+            start = text.find(date_text)
+            entities.append({
+                "text": date_text,
+                "type": "DATE",
+                "start": max(0, start),
+                "end": max(0, start + len(date_text)) if start >= 0 else len(date_text),
+                "confidence": 0.82,
+            })
+
+    except Exception as err:
+        logger.warning(f"实体提取模块不可用，使用规则提取: {err}")
+        for matched in re.findall(r"[\u4e00-\u9fff]{2,}(?:公司|集团|部门|团队)", text):
+            key = (matched, "ORG")
+            if key in seen:
+                continue
+            seen.add(key)
+            start = text.find(matched)
+            entities.append({
+                "text": matched,
+                "type": "ORG",
+                "start": max(0, start),
+                "end": max(0, start + len(matched)) if start >= 0 else len(matched),
+                "confidence": 0.65,
+            })
+
+    return entities
+
+
 # ==================== 文本分析 ====================
 
 @router.post("/nlp/extract-entities")
@@ -89,43 +223,22 @@ async def extract_entities(
                 "processed_at": datetime.utcnow().isoformat(),
             }
         
-        try:
-            from src.nlp_processing.entity_extractor import EntityExtractor
-            
-            extractor = EntityExtractor(config={'language': resolved_language})
-            entities = extractor.extract(resolved_text)
-            
-            # 如果指定了实体类型，进行过滤
-            if resolved_entity_types:
-                entities = [e for e in entities if e.get('type') in resolved_entity_types]
-            
-            logger.info(f"提取实体成功: {len(entities)} 个实体")
-            
-            return {
-                "status": "success",
-                "text_length": len(resolved_text),
-                "entities_count": len(entities),
-                "entities": entities,
-                "language": resolved_language,
-                "processed_at": datetime.utcnow().isoformat(),
-            }
-        
-        except ImportError:
-            # 模拟结果
-            logger.warning("NLP模块不可用，返回模拟结果")
-            
-            return {
-                "status": "success",
-                "text_length": len(resolved_text),
-                "entities_count": 3,
-                "entities": [
-                    {"text": "张三", "type": "PERSON", "start": 0, "end": 2, "confidence": 0.95},
-                    {"text": "公司", "type": "ORG", "start": 10, "end": 12, "confidence": 0.85},
-                    {"text": "北京", "type": "LOCATION", "start": 20, "end": 22, "confidence": 0.90},
-                ],
-                "language": resolved_language,
-                "processed_at": datetime.utcnow().isoformat(),
-            }
+        entities = _extract_entities_from_text(resolved_text, resolved_language)
+
+        if resolved_entity_types:
+            allowed_types = {entity_type.upper() for entity_type in resolved_entity_types}
+            entities = [e for e in entities if str(e.get('type', '')).upper() in allowed_types]
+
+        logger.info(f"提取实体成功: {len(entities)} 个实体")
+
+        return {
+            "status": "success",
+            "text_length": len(resolved_text),
+            "entities_count": len(entities),
+            "entities": entities,
+            "language": resolved_language,
+            "processed_at": datetime.utcnow().isoformat(),
+        }
     
     except HTTPException:
         raise
@@ -311,7 +424,7 @@ async def analyze_topics(
         try:
             from src.nlp_processing.topic_analyzer import TopicAnalyzer
             
-            analyzer = TopicAnalyzer(config={'language': resolved_language})
+            analyzer = TopicAnalyzer(config={'language': resolved_language, 'method': 'textrank', 'num_topics': resolved_num_topics})
             topics = analyzer.analyze_meeting_topics([doc[:500] for doc in resolved_documents])
             
             logger.info(f"主题分析成功: {len(topics)} 个主题")
@@ -404,46 +517,53 @@ async def text_summarization(
 
         logger.info(f"开始生成摘要，摘要长度: {resolved_summary_length}")
         
+        summary = ""
+        llm_used = False
+
         try:
-            from src.nlp_processing.llm_client import LLMClient
-            
-            client = LLMClient(language=resolved_language)
-            summary = client.summarize(resolved_text, summary_length=resolved_summary_length)
-            
-            logger.info(f"摘要生成成功")
-            
-            return {
-                "status": "success",
-                "original_length": len(resolved_text),
-                "summary": summary,
-                "summary_length": resolved_summary_length,
-                "language": resolved_language,
-                "processed_at": datetime.utcnow().isoformat(),
+            from config.nlp_settings import NLPSettings
+            from src.nlp_processing.llm_client import LLMClientFactory
+
+            settings = NLPSettings()
+            provider = settings.llm_provider.value if hasattr(settings.llm_provider, 'value') else str(settings.llm_provider)
+            llm_config = {
+                "provider": provider,
+                "model": settings.llm_model,
+                "base_url": settings.llm_base_url,
+                "api_key": settings.llm_api_key,
+                "timeout": 60,
             }
-        
-        except ImportError:
-            # 模拟结果
-            logger.warning("NLP模块不可用，返回模拟结果")
-            
-            # 生成简单的摘要
-            sentences = resolved_text.split('。')
-            if resolved_summary_length == "short":
-                num_sentences = max(1, len(sentences) // 4)
-            elif resolved_summary_length == "long":
-                num_sentences = max(1, len(sentences) // 2)
-            else:  # medium
-                num_sentences = max(1, len(sentences) // 3)
-            
-            summary = '。'.join(sentences[:num_sentences]) + '。'
-            
-            return {
-                "status": "success",
-                "original_length": len(resolved_text),
-                "summary": summary,
-                "summary_length": resolved_summary_length,
-                "language": resolved_language,
-                "processed_at": datetime.utcnow().isoformat(),
-            }
+
+            if provider in {"openai", "qwen"} and not llm_config.get("api_key"):
+                raise ValueError("LLM API Key未配置，使用提取式摘要")
+
+            prompt = (
+                "请为下面会议文本生成简洁摘要（中文），仅输出摘要正文，不要标题和解释。"
+                f"\n摘要长度: {resolved_summary_length}\n\n"
+                f"文本:\n{resolved_text}"
+            )
+
+            client = LLMClientFactory.create_client(llm_config)
+            llm_summary = client.generate(prompt, temperature=0.2, max_tokens=800)
+            summary = (llm_summary or "").strip()
+            llm_used = bool(summary)
+        except Exception as llm_error:
+            logger.warning(f"LLM摘要不可用，切换提取式摘要: {llm_error}")
+
+        if not summary:
+            summary = _summarize_extractive(resolved_text, resolved_summary_length)
+
+        logger.info("摘要生成成功")
+
+        return {
+            "status": "success",
+            "original_length": len(resolved_text),
+            "summary": summary,
+            "summary_length": resolved_summary_length,
+            "language": resolved_language,
+            "llm_used": llm_used,
+            "processed_at": datetime.utcnow().isoformat(),
+        }
     
     except Exception as e:
         logger.error(f"摘要生成失败: {e}")
@@ -485,30 +605,96 @@ async def process_transcript(
         logger.info(f"开始处理转录稿，分段数: {len(resolved_segments)}")
         
         processed_segments = []
-        
+        speaker_stats = {}
+        full_text_parts = []
+
+        topic_analyzer = None
+        if resolved_extract_keywords or resolved_analyze_sentiment:
+            try:
+                from src.nlp_processing.topic_analyzer import TopicAnalyzer
+                topic_analyzer = TopicAnalyzer(config={'language': resolved_language, 'method': 'textrank', 'num_topics': 5})
+            except Exception as analyzer_err:
+                logger.warning(f"主题分析器初始化失败: {analyzer_err}")
+
         for segment in resolved_segments:
-            text = segment.get("text", "")
-            speaker = segment.get("speaker", "Unknown")
-            
-            processed_segment = {
+            text = str(segment.get("text", "") or "").strip()
+            speaker = str(segment.get("speaker", "Unknown") or "Unknown")
+            start = float(segment.get("start", segment.get("start_time", 0)) or 0)
+            end = float(segment.get("end", segment.get("end_time", 0)) or 0)
+
+            if text:
+                full_text_parts.append(text)
+            speaker_stats[speaker] = speaker_stats.get(speaker, 0) + 1
+
+            entities = _extract_entities_from_text(text, resolved_language) if resolved_extract_entities and text else []
+
+            keywords = []
+            if resolved_extract_keywords and text:
+                if topic_analyzer is not None:
+                    try:
+                        keywords = topic_analyzer.extract_keywords(text, top_k=3)
+                    except Exception as keyword_err:
+                        logger.warning(f"关键词提取失败，使用词频回退: {keyword_err}")
+                if not keywords:
+                    fallback_tokens = _tokenize_text(text)
+                    token_counter = Counter(fallback_tokens)
+                    keywords = [
+                        {"keyword": token, "weight": float(freq), "frequency": int(freq)}
+                        for token, freq in token_counter.most_common(3)
+                    ]
+
+            sentiment = None
+            if resolved_analyze_sentiment and text:
+                sentiment_label = "neutral"
+                positive_score = 0.2
+                neutral_score = 0.6
+                negative_score = 0.2
+                if topic_analyzer is not None:
+                    try:
+                        sentiment_result = topic_analyzer.analyze_sentiments([text])
+                        if sentiment_result:
+                            first = sentiment_result[0]
+                            sentiment_label = first.get("label", "neutral")
+                            score = float(first.get("score", 0.0))
+                            positive_score = max(0.0, min(1.0, 0.5 + score / 2))
+                            negative_score = max(0.0, min(1.0, 0.5 - score / 2))
+                            neutral_score = max(0.0, 1.0 - max(positive_score, negative_score))
+                    except Exception as sentiment_err:
+                        logger.warning(f"情感分析失败，使用中性回退: {sentiment_err}")
+
+                sentiment = {
+                    "sentiment": sentiment_label,
+                    "scores": {
+                        "positive": round(positive_score, 3),
+                        "neutral": round(neutral_score, 3),
+                        "negative": round(negative_score, 3),
+                    },
+                }
+
+            processed_segments.append({
                 "speaker": speaker,
                 "text": text,
-                "entities": [] if not resolved_extract_entities else [{
-                    "text": "示例实体",
-                    "type": "PERSON",
-                    "confidence": 0.9
-                }],
-                "keywords": [] if not resolved_extract_keywords else [{
-                    "keyword": "关键词",
-                    "weight": 0.85
-                }],
-                "sentiment": None if not resolved_analyze_sentiment else {
-                    "sentiment": "positive",
-                    "scores": {"positive": 0.7, "neutral": 0.2, "negative": 0.1}
-                },
-            }
-            
-            processed_segments.append(processed_segment)
+                "start": start,
+                "end": end,
+                "entities": entities,
+                "keywords": keywords,
+                "sentiment": sentiment,
+            })
+
+        full_text = " ".join(full_text_parts)
+        key_topics: List[str] = []
+        topics: List[dict] = []
+
+        if full_text and topic_analyzer is not None:
+            try:
+                topics = topic_analyzer.analyze_meeting_topics(_split_sentences(full_text))
+                key_topics = [topic.get("name") for topic in topics if topic.get("name")]
+            except Exception as topic_err:
+                logger.warning(f"会议议题分析失败，使用关键词回退: {topic_err}")
+
+        if not key_topics and full_text:
+            fallback_counter = Counter(_tokenize_text(full_text))
+            key_topics = [token for token, _ in fallback_counter.most_common(5)]
         
         logger.info(f"处理转录稿成功: {len(processed_segments)} 个分段")
         
@@ -516,6 +702,10 @@ async def process_transcript(
             "status": "success",
             "segments_count": len(processed_segments),
             "segments": processed_segments,
+            "speaker_stats": speaker_stats,
+            "key_topics": key_topics,
+            "topics": topics,
+            "full_text": full_text,
             "language": resolved_language,
             "processed_at": datetime.utcnow().isoformat(),
         }

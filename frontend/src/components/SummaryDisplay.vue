@@ -213,21 +213,32 @@ watch(
         nlpAnalysisService.generateSummary(fullText, 'medium', newVal.language || 'zh'),
       ])
 
+      const processedSegments = Array.isArray(processedResp?.segments) ? processedResp.segments : []
+      const processedSpeakerStats = processedResp?.speaker_stats && typeof processedResp.speaker_stats === 'object'
+        ? processedResp.speaker_stats
+        : {}
+      const processedKeyTopics = Array.isArray(processedResp?.key_topics)
+        ? processedResp.key_topics.filter((topic) => String(topic || '').trim())
+        : []
+
       // 合成本地 summary 结构，尽量兼容模板字段
       localSummary.value = {
         title: newVal.file_name || '会议摘要',
         duration: newVal.duration || null,
         created_at: newVal.transcription_time || newVal.created_at || null,
-        speaker_count: processedResp.segments ? processedResp.segments.length : (newVal.speaker_count || 0),
+        speaker_count:
+          Object.keys(processedSpeakerStats).length ||
+          new Set(processedSegments.map((seg) => seg?.speaker || 'Unknown')).size ||
+          (newVal.speaker_count || 0),
         summary_text: (
           (summaryResp.summary && String(summaryResp.summary).trim()) ||
           (summaryResp.summary_text && String(summaryResp.summary_text).trim()) ||
           ''
         ),
-        key_topics: processedResp.segments ? [] : [],
+        key_topics: processedKeyTopics,
         highlights: [],
         action_items: [],
-        speaker_stats: {},
+        speaker_stats: processedSpeakerStats,
         notes: '',
         // 原始分析数据
         _nlp: {
@@ -239,7 +250,7 @@ watch(
       // 如果 processTranscript 返回 processed segments，尝试构建简单 speaker_stats 和 key_topics
       try {
         const proc = processedResp
-        if (proc && proc.segments) {
+        if (proc && proc.segments && !Object.keys(localSummary.value.speaker_stats || {}).length) {
           const stats = {}
           proc.segments.forEach((s) => {
             const sp = s.speaker || 'Unknown'
@@ -247,9 +258,11 @@ watch(
           })
           localSummary.value.speaker_stats = stats
         }
-        if (proc && proc.segments) {
-          // 从 processed segments 中提取简单 key topics（占位）
-          localSummary.value.key_topics = (proc.segments.slice(0, 5) || []).map((s) => s.text?.slice(0, 30) || '')
+        if (proc && proc.segments && (!localSummary.value.key_topics || !localSummary.value.key_topics.length)) {
+          const fallbackTopics = (proc.segments.slice(0, 5) || [])
+            .map((s) => s.text?.slice(0, 30) || '')
+            .filter((t) => t)
+          localSummary.value.key_topics = fallbackTopics
         }
       } catch (e) {
         // ignore
