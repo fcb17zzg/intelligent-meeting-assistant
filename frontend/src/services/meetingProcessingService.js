@@ -56,24 +56,37 @@ export const meetingProcessingService = {
 
       const segments = transcriptionResult.segments || []
       const transcriptionText = transcriptionResult.text || ''
+      const segmentsText = segments
+        .map((s) => (s && s.text ? String(s.text).trim() : ''))
+        .filter((t) => t)
+        .join(' ')
+      const nlpText = (String(transcriptionText || '').trim() || segmentsText || '').trim()
 
       let nlpResults = null
       if (enableNLPAnalysis) {
         // 步骤3: 进行NLP分析
         console.log('步骤3: 进行NLP分析...')
 
-        // 并行执行多个NLP分析
+        // 空文本短路：仅保留分段级处理，跳过需要文本的接口请求
+        const textNlpPromise = nlpText
+          ? Promise.all([
+              nlpAnalysisService.extractEntities(nlpText, language),
+              nlpAnalysisService.extractKeywords(nlpText, 10, language),
+              nlpAnalysisService.analyzeSentiment([nlpText], language),
+              nlpAnalysisService.analyzeTopics([nlpText], language, 5),
+            ])
+          : Promise.resolve([
+              { entities: [] },
+              { keywords: [] },
+              { sentiments: [] },
+              { topics: [] },
+            ])
+
         const [
-          entitiesResult,
-          keywordsResult,
-          sentimentResult,
-          topicsResult,
+          [entitiesResult, keywordsResult, sentimentResult, topicsResult],
           transcriptProcessingResult,
         ] = await Promise.all([
-          nlpAnalysisService.extractEntities(transcriptionText, language),
-          nlpAnalysisService.extractKeywords(transcriptionText, 10, language),
-          nlpAnalysisService.analyzeSentiment([transcriptionText], language),
-          nlpAnalysisService.analyzeTopics([transcriptionText], language, 5),
+          textNlpPromise,
           nlpAnalysisService.processTranscript(segments, language),
         ])
 
@@ -179,18 +192,28 @@ export const meetingProcessingService = {
         .map((s) => (s.text ? s.text : ''))
         .join(' ')
 
-      // 并行执行NLP分析
+      const nlpText = String(fullText || '').trim()
+
+      // 空文本短路：仅保留分段级处理，跳过需要文本的接口请求
+      const textNlpPromise = nlpText
+        ? Promise.all([
+            nlpAnalysisService.extractEntities(nlpText, language),
+            nlpAnalysisService.extractKeywords(nlpText, 10, language),
+            nlpAnalysisService.analyzeSentiment([nlpText], language),
+            nlpAnalysisService.analyzeTopics([nlpText], language, 5),
+          ])
+        : Promise.resolve([
+            { entities: [] },
+            { keywords: [] },
+            { sentiments: [] },
+            { topics: [] },
+          ])
+
       const [
-        entitiesResult,
-        keywordsResult,
-        sentimentResult,
-        topicsResult,
+        [entitiesResult, keywordsResult, sentimentResult, topicsResult],
         transcriptProcessingResult,
       ] = await Promise.all([
-        nlpAnalysisService.extractEntities(fullText, language),
-        nlpAnalysisService.extractKeywords(fullText, 10, language),
-        nlpAnalysisService.analyzeSentiment([fullText], language),
-        nlpAnalysisService.analyzeTopics([fullText], language, 5),
+        textNlpPromise,
         nlpAnalysisService.processTranscript(segments, language),
       ])
 
