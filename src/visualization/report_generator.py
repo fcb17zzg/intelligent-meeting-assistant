@@ -19,7 +19,9 @@ class ReportGenerator:
     def generate_report(self, 
                        meeting_data: Dict[str, Any],
                        insights: Dict[str, Any],
-                       output_format: str = "json") -> str:
+                       output_format: str = "json",
+                       report_format: Optional[str] = None,
+                       title: Optional[str] = None) -> str:
         """
         生成会议报告
         
@@ -27,12 +29,17 @@ class ReportGenerator:
             meeting_data: 会议原始数据
             insights: 会议洞察数据
             output_format: 输出格式 (json, markdown, html)
+            report_format: output_format 的兼容别名
+            title: 报告标题（可选）
             
         Returns:
             报告文件路径
         """
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        meeting_title = meeting_data.get("title", "untitled").replace(" ", "_")
+        if report_format is not None:
+            output_format = report_format
+
+        meeting_title = (title or meeting_data.get("title", "untitled")).replace(" ", "_")
         
         if output_format == "json":
             return self._generate_json_report(meeting_data, insights, meeting_title, timestamp)

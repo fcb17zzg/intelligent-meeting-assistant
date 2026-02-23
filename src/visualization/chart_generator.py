@@ -49,14 +49,36 @@ class ChartGenerator:
                 'plot_bgcolor': self.colors['background']
             }
         }
+
+    def _get_insight_field(self, insights, field: str, default=None):
+        if isinstance(insights, dict):
+            return insights.get(field, default)
+        return getattr(insights, field, default)
+
+    def _get_item_field(self, item, field: str, default=None):
+        if isinstance(item, dict):
+            return item.get(field, default)
+        return getattr(item, field, default)
+
+    def _get_priority_name(self, item) -> str:
+        priority = self._get_item_field(item, 'priority', None)
+        if isinstance(priority, str):
+            return priority.upper()
+        if priority is not None and hasattr(priority, 'name'):
+            return str(priority.name).upper()
+        return 'MEDIUM'
+
+    def _resolve_format(self, format: str, output_format: Optional[str]) -> str:
+        return output_format if output_format is not None else format
     
-    def create_speaker_pie_chart(self, insights, output_dir: Optional[str] = None, 
-                                format: str = 'html') -> str:
+    def create_speaker_pie_chart(self, insights, output_dir: Optional[str] = None,
+                                format: str = 'html', output_format: Optional[str] = None) -> str:
         """创建说话人贡献饼图"""
+        format = self._resolve_format(format, output_format)
         if output_dir is None:
             output_dir = self.output_dir
         
-        speaker_data = insights.speaker_contributions
+        speaker_data = self._get_insight_field(insights, 'speaker_contributions', {}) or {}
         
         if not speaker_data:
             # 如果没有说话人数据，创建空图表
@@ -86,19 +108,24 @@ class ChartGenerator:
             )
         
         # 保存图表
-        filename = f"speaker_pie_chart_{insights.meeting_id}"
+        filename = f"speaker_pie_chart_{self._get_insight_field(insights, 'meeting_id', 'unknown')}"
         return self._save_chart(fig, filename, output_dir, format)
     
     def create_priority_bar_chart(self, insights, output_dir: Optional[str] = None,
-                                 format: str = 'html') -> str:
+                                 format: str = 'html', output_format: Optional[str] = None) -> str:
         """创建任务优先级柱状图"""
+        format = self._resolve_format(format, output_format)
         if output_dir is None:
             output_dir = self.output_dir
         
         # 统计优先级
         priority_counts = {'HIGH': 0, 'MEDIUM': 0, 'LOW': 0}
-        for item in insights.action_items:
-            priority_counts[item.priority.name] += 1
+        action_items = self._get_insight_field(insights, 'action_items', []) or []
+        for item in action_items:
+            priority_name = self._get_priority_name(item)
+            if priority_name not in priority_counts:
+                priority_name = 'MEDIUM'
+            priority_counts[priority_name] += 1
         
         priorities = list(priority_counts.keys())
         counts = list(priority_counts.values())
@@ -120,24 +147,29 @@ class ChartGenerator:
             **self.default_template['layout']
         )
         
-        filename = f"priority_bar_chart_{insights.meeting_id}"
+        filename = f"priority_bar_chart_{self._get_insight_field(insights, 'meeting_id', 'unknown')}"
         return self._save_chart(fig, filename, output_dir, format)
     
     def create_timeline_chart(self, insights, output_dir: Optional[str] = None,
-                             format: str = 'html') -> str:
+                             format: str = 'html', output_format: Optional[str] = None) -> str:
         """创建任务时间线图"""
+        format = self._resolve_format(format, output_format)
         if output_dir is None:
             output_dir = self.output_dir
         
         # 准备数据
         task_data = []
-        for item in insights.action_items:
-            if item.due_date:
+        action_items = self._get_insight_field(insights, 'action_items', []) or []
+        for item in action_items:
+            due_date = self._get_item_field(item, 'due_date', None)
+            description = self._get_item_field(item, 'description', '')
+            assignee = self._get_item_field(item, 'assignee', None)
+            if due_date:
                 task_data.append({
-                    '任务': item.description[:30] + '...' if len(item.description) > 30 else item.description,
-                    '截止日期': item.due_date,
-                    '负责人': item.assignee or '待分配',
-                    '优先级': item.priority.name
+                    '任务': description[:30] + '...' if len(description) > 30 else description,
+                    '截止日期': due_date,
+                    '负责人': assignee or '待分配',
+                    '优先级': self._get_priority_name(item)
                 })
         
         if not task_data:
@@ -176,16 +208,18 @@ class ChartGenerator:
                 **self.default_template['layout']
             )
         
-        filename = f"timeline_chart_{insights.meeting_id}"
+        filename = f"timeline_chart_{self._get_insight_field(insights, 'meeting_id', 'unknown')}"
         return self._save_chart(fig, filename, output_dir, format)
     
     def create_topic_bubble_chart(self, insights, output_dir: Optional[str] = None,
-                                 format: str = 'html') -> str:
+                                 format: str = 'html', output_format: Optional[str] = None) -> str:
         """创建主题气泡图"""
+        format = self._resolve_format(format, output_format)
         if output_dir is None:
             output_dir = self.output_dir
         
-        if not insights.key_topics:
+        key_topics = self._get_insight_field(insights, 'key_topics', []) or []
+        if not key_topics:
             fig = go.Figure()
             fig.update_layout(
                 title="会议主题分布（无主题数据）",
@@ -194,13 +228,21 @@ class ChartGenerator:
         else:
             # 准备数据
             topic_data = []
-            for i, topic in enumerate(insights.key_topics):
+            for i, topic in enumerate(key_topics):
+                topic_name = self._get_item_field(topic, 'name', None) or self._get_item_field(topic, 'topic', f'主题{i+1}')
+                confidence = self._get_item_field(topic, 'confidence', 0.0)
+                keywords = self._get_item_field(topic, 'keywords', []) or []
+                if isinstance(keywords, str):
+                    keywords = [keywords]
+                speaker_involved = self._get_item_field(topic, 'speaker_involved', None)
+                if speaker_involved is None:
+                    speaker_involved = self._get_item_field(topic, 'participants', []) or []
                 topic_data.append({
-                    '主题': topic.name,
-                    '置信度': topic.confidence,
-                    '关键词': ', '.join(topic.keywords),
-                    '参与人数': len(topic.speaker_involved),
-                    'size': topic.confidence * 50  # 气泡大小
+                    '主题': topic_name,
+                    '置信度': float(confidence),
+                    '关键词': ', '.join(keywords),
+                    '参与人数': len(speaker_involved),
+                    'size': float(confidence) * 50  # 气泡大小
                 })
             
             df = pd.DataFrame(topic_data)
@@ -241,16 +283,17 @@ class ChartGenerator:
                 **self.default_template['layout']
             )
         
-        filename = f"topic_bubble_chart_{insights.meeting_id}"
+        filename = f"topic_bubble_chart_{self._get_insight_field(insights, 'meeting_id', 'unknown')}"
         return self._save_chart(fig, filename, output_dir, format)
     
     def create_sentiment_gauge(self, insights, output_dir: Optional[str] = None,
-                              format: str = 'html') -> str:
+                              format: str = 'html', output_format: Optional[str] = None) -> str:
         """创建情感仪表盘"""
+        format = self._resolve_format(format, output_format)
         if output_dir is None:
             output_dir = self.output_dir
         
-        sentiment = insights.sentiment_overall or 0.0
+        sentiment = self._get_insight_field(insights, 'sentiment_overall', 0.0) or 0.0
         
         fig = go.Figure(go.Indicator(
             mode="gauge+number+delta",
@@ -279,12 +322,13 @@ class ChartGenerator:
             **self.default_template['layout']
         )
         
-        filename = f"sentiment_gauge_{insights.meeting_id}"
+        filename = f"sentiment_gauge_{self._get_insight_field(insights, 'meeting_id', 'unknown')}"
         return self._save_chart(fig, filename, output_dir, format)
     
     def create_dashboard(self, insights, output_dir: Optional[str] = None,
-                        format: str = 'html') -> str:
+                        format: str = 'html', output_format: Optional[str] = None) -> str:
         """创建综合仪表盘"""
+        format = self._resolve_format(format, output_format)
         if output_dir is None:
             output_dir = self.output_dir
         
@@ -299,11 +343,12 @@ class ChartGenerator:
         )
         
         # 1. 说话人饼图
-        if insights.speaker_contributions:
+        speaker_contributions = self._get_insight_field(insights, 'speaker_contributions', {}) or {}
+        if speaker_contributions:
             fig.add_trace(
                 go.Pie(
-                    labels=list(insights.speaker_contributions.keys()),
-                    values=list(insights.speaker_contributions.values()),
+                    labels=list(speaker_contributions.keys()),
+                    values=list(speaker_contributions.values()),
                     showlegend=False
                 ),
                 row=1, col=1
@@ -311,8 +356,12 @@ class ChartGenerator:
         
         # 2. 优先级柱状图
         priority_counts = {'HIGH': 0, 'MEDIUM': 0, 'LOW': 0}
-        for item in insights.action_items:
-            priority_counts[item.priority.name] += 1
+        action_items = self._get_insight_field(insights, 'action_items', []) or []
+        for item in action_items:
+            priority_name = self._get_priority_name(item)
+            if priority_name not in priority_counts:
+                priority_name = 'MEDIUM'
+            priority_counts[priority_name] += 1
         
         fig.add_trace(
             go.Bar(
@@ -324,10 +373,11 @@ class ChartGenerator:
         )
         
         # 3. 主题气泡图
-        if insights.key_topics:
-            topic_x = list(range(len(insights.key_topics)))
-            topic_y = [1] * len(insights.key_topics)
-            topic_sizes = [t.confidence * 30 for t in insights.key_topics]
+        key_topics = self._get_insight_field(insights, 'key_topics', []) or []
+        if key_topics:
+            topic_x = list(range(len(key_topics)))
+            topic_y = [1] * len(key_topics)
+            topic_sizes = [float(self._get_item_field(t, 'confidence', 0.0)) * 30 for t in key_topics]
             
             fig.add_trace(
                 go.Scatter(
@@ -335,7 +385,7 @@ class ChartGenerator:
                     y=topic_y,
                     mode='markers+text',
                     marker=dict(size=topic_sizes, color='lightblue'),
-                    text=[t.name for t in insights.key_topics],
+                    text=[self._get_item_field(t, 'name', None) or self._get_item_field(t, 'topic', f'主题{i+1}') for i, t in enumerate(key_topics)],
                     textposition="top center",
                     showlegend=False
                 ),
@@ -346,7 +396,7 @@ class ChartGenerator:
         fig.add_trace(
             go.Indicator(
                 mode="gauge+number",
-                value=insights.sentiment_overall or 0.0,
+                value=self._get_insight_field(insights, 'sentiment_overall', 0.0) or 0.0,
                 gauge={
                     'axis': {'range': [-1, 1]},
                     'bar': {'color': "darkblue"},
@@ -361,7 +411,7 @@ class ChartGenerator:
         
         # 更新布局
         fig.update_layout(
-            title_text=f"会议洞察仪表盘 - {insights.meeting_id}",
+            title_text=f"会议洞察仪表盘 - {self._get_insight_field(insights, 'meeting_id', 'unknown')}",
             title_x=0.5,
             showlegend=False,
             height=800,
@@ -369,7 +419,7 @@ class ChartGenerator:
             **self.default_template['layout']
         )
         
-        filename = f"meeting_dashboard_{insights.meeting_id}"
+        filename = f"meeting_dashboard_{self._get_insight_field(insights, 'meeting_id', 'unknown')}"
         return self._save_chart(fig, filename, output_dir, format)
     
     def generate_all_charts(self, insights) -> Dict[str, str]:

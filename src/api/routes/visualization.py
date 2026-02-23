@@ -257,7 +257,7 @@ async def generate_topics_bubble_chart(
 @router.post("/visualization/dashboard")
 async def generate_dashboard(
     insights: Dict[str, Any],
-    meeting_id: int,
+    meeting_id: Optional[int] = None,
     output_format: str = "html",
 ):
     """
@@ -272,7 +272,8 @@ async def generate_dashboard(
     - dashboard_data: 仪表盘文件路径或数据
     """
     try:
-        logger.info(f"生成会议仪表盘，会议ID: {meeting_id}")
+        resolved_meeting_id = meeting_id if meeting_id is not None else insights.get("meeting_id")
+        logger.info(f"生成会议仪表盘，会议ID: {resolved_meeting_id}")
         
         try:
             from src.visualization.chart_generator import ChartGenerator
@@ -288,7 +289,7 @@ async def generate_dashboard(
             return {
                 "status": "success",
                 "chart_type": "dashboard",
-                "meeting_id": meeting_id,
+                "meeting_id": resolved_meeting_id,
                 "file_path": dashboard_path,
                 "format": output_format,
                 "created_at": datetime.utcnow().isoformat(),
@@ -301,7 +302,7 @@ async def generate_dashboard(
             return {
                 "status": "success",
                 "chart_type": "dashboard",
-                "meeting_id": meeting_id,
+                "meeting_id": resolved_meeting_id,
                 "dashboard": {
                     "summary": "会议总结",
                     "duration": "30 分钟",
