@@ -120,20 +120,22 @@ const validateFile = (file) => {
   return true
 }
 
-const handleFileSelect = (event) => {
+const handleFileSelect = async (event) => {
   const file = event.target.files?.[0]
   if (validateFile(file)) {
     selectedFile.value = file
     emit('file-selected', file)
+    await uploadFile()
   }
 }
 
-const handleDrop = (event) => {
+const handleDrop = async (event) => {
   isDragging.value = false
   const file = event.dataTransfer.files?.[0]
   if (validateFile(file)) {
     selectedFile.value = file
     emit('file-selected', file)
+    await uploadFile()
   }
 }
 

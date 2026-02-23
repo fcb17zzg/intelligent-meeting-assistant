@@ -6,8 +6,9 @@ import os
 import logging
 from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, HTTPException, File, UploadFile, Form
+from fastapi import APIRouter, HTTPException, File, UploadFile, Form, Body
 from pathlib import Path
+from pydantic import BaseModel
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -15,6 +16,20 @@ logger = logging.getLogger(__name__)
 # 音频文件保存目录
 AUDIO_UPLOAD_DIR = Path("./cache/audio/uploads")
 AUDIO_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+
+class TranscribeRequest(BaseModel):
+    file_id: str
+    language: str = "auto"
+    speaker_diarization: bool = True
+    context: Optional[str] = None
+
+
+class PreprocessRequest(BaseModel):
+    file_id: str
+    normalize: bool = True
+    denoise: bool = True
+    sample_rate: int = 16000
 
 
 # ==================== 音频上传和处理 ====================
@@ -64,9 +79,10 @@ async def upload_audio(
 
 @router.post("/audio/transcribe")
 async def transcribe_audio(
-    file_id: str,
-    language: Optional[str] = "auto",
-    speaker_diarization: bool = True,
+    request: Optional[TranscribeRequest] = Body(None),
+    file_id: Optional[str] = None,
+    language: Optional[str] = None,
+    speaker_diarization: Optional[bool] = None,
     context: Optional[str] = None,
 ):
     """
@@ -85,38 +101,44 @@ async def transcribe_audio(
     - segments: 转录分段（完成后）
     """
     try:
-        file_path = AUDIO_UPLOAD_DIR / file_id
+        resolved_file_id = request.file_id if request and request.file_id else file_id
+        resolved_language = request.language if request and request.language else (language or "auto")
+        resolved_speaker_diarization = (
+            request.speaker_diarization
+            if request is not None
+            else (speaker_diarization if speaker_diarization is not None else True)
+        )
+        if not resolved_file_id:
+            raise HTTPException(status_code=422, detail="缺少 file_id")
+
+        file_path = AUDIO_UPLOAD_DIR / resolved_file_id
         
         if not file_path.exists():
-            raise HTTPException(status_code=404, detail=f"文件不存在: {file_id}")
+            raise HTTPException(status_code=404, detail=f"文件不存在: {resolved_file_id}")
         
-        logger.info(f"开始转录文件: {file_id}")
+        logger.info(f"开始转录文件: {resolved_file_id}")
         
         # 尝试导入音频处理模块
         try:
-            from src.audio_processing.core.whisper_client import WhisperClient
+            from src.audio_processing.core.whisper_client import WhisperClient, WhisperConfig
             from src.audio_processing.config.settings import settings
             
             # 创建Whisper客户端
-            client = WhisperClient(
-                model_name=settings.whisper_model,
-                device=settings.whisper_device,
-                compute_type=settings.compute_type,
-            )
+            whisper_config = WhisperConfig(**settings.whisper_config)
+            client = WhisperClient(whisper_config)
             
             # 执行转录
             result = client.transcribe(
-                audio_path=str(file_path),
-                language=language if language != "auto" else None,
-                detect_language=language == "auto",
+                str(file_path),
+                language=resolved_language if resolved_language != "auto" else None,
             )
             
-            logger.info(f"转录成功: {file_id}")
+            logger.info(f"转录成功: {resolved_file_id}")
             
             # 如果需要的话，进行说话人分离
             segments = result.segments if hasattr(result, 'segments') else []
             
-            if speaker_diarization and hasattr(result, 'segments'):
+            if resolved_speaker_diarization and hasattr(result, 'segments'):
                 try:
                     from src.audio_processing.core.diarization_client import DiarizationClient
                     
@@ -131,12 +153,14 @@ async def transcribe_audio(
                 except Exception as e:
                     logger.warning(f"说话人分离失败: {e}")
             
+            transcription_text = result.text if hasattr(result, "text") else (str(result) if result else "")
+
             return {
-                "transcription_id": f"{file_id}_transcription",
+                "transcription_id": f"{resolved_file_id}_transcription",
                 "status": "completed",
-                "file_id": file_id,
-                "language": language,
-                "text": str(result) if result else "",
+                "file_id": resolved_file_id,
+                "language": resolved_language,
+                "text": transcription_text,
                 "segments": [
                     {
                         "start": getattr(seg, 'start_time', 0),
@@ -153,10 +177,10 @@ async def transcribe_audio(
             # 如果模块不可用，返回模拟结果
             logger.warning("音频处理模块不可用，返回模拟结果")
             return {
-                "transcription_id": f"{file_id}_transcription",
+                "transcription_id": f"{resolved_file_id}_transcription",
                 "status": "completed",
-                "file_id": file_id,
-                "language": language,
+                "file_id": resolved_file_id,
+                "language": resolved_language,
                 "text": "这是模拟转录文本。在实际环境中，这里会包含音频文件的转录内容。",
                 "segments": [
                     {
@@ -175,6 +199,8 @@ async def transcribe_audio(
                 "transcription_time": datetime.utcnow().isoformat(),
             }
     
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"转录失败: {e}")
         raise HTTPException(status_code=500, detail=f"转录失败: {str(e)}")
@@ -211,10 +237,11 @@ async def get_transcription(transcription_id: str):
 
 @router.post("/audio/preprocess")
 async def preprocess_audio(
-    file_id: str,
-    normalize: bool = True,
-    denoise: bool = True,
-    sample_rate: int = 16000,
+    request: Optional[PreprocessRequest] = Body(None),
+    file_id: Optional[str] = None,
+    normalize: Optional[bool] = None,
+    denoise: Optional[bool] = None,
+    sample_rate: Optional[int] = None,
 ):
     """
     预处理音频文件
@@ -229,34 +256,42 @@ async def preprocess_audio(
     - 预处理结果
     """
     try:
-        file_path = AUDIO_UPLOAD_DIR / file_id
+        resolved_file_id = request.file_id if request and request.file_id else file_id
+        resolved_normalize = request.normalize if request is not None else (normalize if normalize is not None else True)
+        resolved_denoise = request.denoise if request is not None else (denoise if denoise is not None else True)
+        resolved_sample_rate = request.sample_rate if request and request.sample_rate else (sample_rate or 16000)
+
+        if not resolved_file_id:
+            raise HTTPException(status_code=422, detail="缺少 file_id")
+
+        file_path = AUDIO_UPLOAD_DIR / resolved_file_id
         
         if not file_path.exists():
-            raise HTTPException(status_code=404, detail=f"文件不存在: {file_id}")
+            raise HTTPException(status_code=404, detail=f"文件不存在: {resolved_file_id}")
         
         try:
             from src.audio_processing.core.audio_processor import AudioProcessor
             
             processor = AudioProcessor(
-                target_sample_rate=sample_rate,
-                normalize_db=-20.0 if normalize else None,
+                target_sample_rate=resolved_sample_rate,
+                normalize_db=-20.0 if resolved_normalize else None,
             )
             
             output_path = processor.preprocess_audio(
                 str(file_path),
-                enable_denoise=denoise
+                enable_denoise=resolved_denoise
             )
             
-            logger.info(f"音频预处理成功: {file_id}")
+            logger.info(f"音频预处理成功: {resolved_file_id}")
             
             return {
                 "status": "completed",
-                "file_id": file_id,
+                "file_id": resolved_file_id,
                 "original_path": str(file_path),
                 "processed_path": output_path,
-                "sample_rate": sample_rate,
-                "normalize": normalize,
-                "denoise": denoise,
+                "sample_rate": resolved_sample_rate,
+                "normalize": resolved_normalize,
+                "denoise": resolved_denoise,
                 "message": "音频预处理完成"
             }
         
@@ -264,13 +299,15 @@ async def preprocess_audio(
             logger.warning("音频处理模块不可用")
             return {
                 "status": "completed",
-                "file_id": file_id,
-                "sample_rate": sample_rate,
-                "normalize": normalize,
-                "denoise": denoise,
+                "file_id": resolved_file_id,
+                "sample_rate": resolved_sample_rate,
+                "normalize": resolved_normalize,
+                "denoise": resolved_denoise,
                 "message": "音频预处理完成（模拟）"
             }
     
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"预处理失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
