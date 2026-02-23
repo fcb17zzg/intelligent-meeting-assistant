@@ -122,6 +122,7 @@
           :summary="summary"
           :loading="summaryLoading"
           :transcription="transcriptionData"
+          :meeting-id="meetingId"
           @refresh="loadSummary"
           @update-notes="updateSummaryNotes"
         />

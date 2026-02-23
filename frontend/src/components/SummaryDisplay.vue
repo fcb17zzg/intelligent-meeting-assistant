@@ -137,6 +137,7 @@ import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { formatDate, formatDuration } from '@/utils/dateUtils'
 import nlpAnalysisService from '@/services/nlpAnalysisService'
+import { meetingAPI } from '@/api/index'
 
 const props = defineProps({
   summary: {
@@ -149,6 +150,10 @@ const props = defineProps({
   },
   transcription: {
     type: Object,
+    default: null,
+  },
+  meetingId: {
+    type: [Number, String],
     default: null,
   },
 })
@@ -275,6 +280,16 @@ watch(
         // ignore
       }
 
+      // 保存摘要到后端
+      if (props.meetingId && localSummary.value.summary_text) {
+        try {
+          await saveSummaryToBackend(localSummary.value)
+        } catch (saveErr) {
+          console.error('保存摘要失败:', saveErr)
+          // 继续显示摘要，即使保存失败
+        }
+      }
+
     } catch (err) {
       ElMessage.error('自动分析失败：' + (err.message || err))
     } finally {
@@ -388,6 +403,30 @@ const refreshSummary = () => {
 
 const updateActionItem = (item) => {
   emit('update-action-item', item)
+}
+
+/**
+ * 保存摘要到后端
+ */
+const saveSummaryToBackend = async (summary) => {
+  if (!props.meetingId) {
+    console.log('未提供 meetingId，跳过摘要保存')
+    return
+  }
+
+  try {
+    const updateData = {
+      summary: summary.summary_text || summary.summary || '',
+      key_topics: JSON.stringify(summary.key_topics || []),
+      summary_type: 'abstractive',
+    }
+
+    await meetingAPI.updateMeeting(props.meetingId, updateData)
+    console.log('摘要已保存到后端')
+  } catch (err) {
+    console.error('保存摘要到后端失败:', err)
+    throw err
+  }
 }
 </script>
 
