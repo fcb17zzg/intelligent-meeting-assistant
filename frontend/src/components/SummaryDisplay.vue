@@ -209,10 +209,15 @@ watch(
       const textFromResult = newVal.text ? String(newVal.text).trim() : ''
       const fullText = textFromResult || segmentsText
 
+      // 空文本短路：无有效文本时跳过摘要接口，避免无效请求
+      const summaryPromise = fullText
+        ? nlpAnalysisService.generateSummary(fullText, 'medium', newVal.language || 'zh')
+        : Promise.resolve({ summary: '' })
+
       // 并行请求：处理转录（实体/关键词/句子级分析）与摘要
       const [processedResp, summaryResp] = await Promise.all([
         nlpAnalysisService.processTranscript(segments, newVal.language || 'zh'),
-        nlpAnalysisService.generateSummary(fullText, 'medium', newVal.language || 'zh'),
+        summaryPromise,
       ])
 
       const processedSegments = Array.isArray(processedResp?.segments) ? processedResp.segments : []
