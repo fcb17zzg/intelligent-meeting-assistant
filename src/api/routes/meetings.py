@@ -91,7 +91,7 @@ async def create_meeting(meeting: MeetingCreate, db: Session = Depends(get_db)):
     """
     创建新会议并持久化到数据库
     """
-    db_meeting = Meeting(**meeting.dict())
+    db_meeting = Meeting(**meeting.model_dump())
     # 默认 owner_id 为 1（若需真实用户，应由认证上下文提供）
     if not getattr(db_meeting, 'owner_id', None):
         db_meeting.owner_id = 1

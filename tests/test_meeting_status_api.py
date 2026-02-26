@@ -24,6 +24,30 @@ def _create_meeting(client: TestClient, title_suffix: str) -> int:
     return data["id"]
 
 
+def test_create_meeting_accepts_status():
+    now = datetime.utcnow()
+    payload = {
+        "title": "状态测试会议-create",
+        "description": "用于验证创建时状态写入",
+        "start_time": now.isoformat(),
+        "end_time": (now + timedelta(minutes=30)).isoformat(),
+        "duration": 30,
+        "participants": 3,
+        "location": "测试会议室",
+        "status": "in_progress",
+    }
+
+    with TestClient(app) as client:
+        create_response = client.post("/api/meetings", json=payload)
+        assert create_response.status_code == 200, create_response.text
+        create_data = create_response.json()
+        assert create_data["status"] == "in_progress"
+
+        detail_response = client.get(f"/api/meetings/{create_data['id']}")
+        assert detail_response.status_code == 200, detail_response.text
+        assert detail_response.json()["status"] == "in_progress"
+
+
 def test_update_meeting_status_via_put():
     with TestClient(app) as client:
         meeting_id = _create_meeting(client, "put")

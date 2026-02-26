@@ -139,7 +139,7 @@ class Meeting(MeetingBase, table=True):
 
 class MeetingCreate(MeetingBase):
     """创建会议请求"""
-    pass
+    status: MeetingStatus = MeetingStatus.SCHEDULED
 
 
 class MeetingUpdate(SQLModel):

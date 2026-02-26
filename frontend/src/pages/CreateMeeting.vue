@@ -38,6 +38,17 @@
           />
         </el-form-item>
 
+        <el-form-item prop="status" label="会议状态">
+          <el-select v-model="formData.status" style="width: 100%">
+            <el-option
+              v-for="option in statusOptions"
+              :key="option.value"
+              :label="option.label"
+              :value="option.value"
+            />
+          </el-select>
+        </el-form-item>
+
         <!-- 两列布局 -->
         <el-row :gutter="20">
           <el-col :xs="24" :md="12">
@@ -132,9 +143,17 @@ const meetingStore = useMeetingStore()
 const formRef = ref(null)
 const submitting = ref(false)
 
+const statusOptions = [
+  { value: 'scheduled', label: '已排期' },
+  { value: 'in_progress', label: '进行中' },
+  { value: 'completed', label: '已完成' },
+  { value: 'archived', label: '已归档' },
+]
+
 const formData = ref({
   title: '',
   description: '',
+  status: 'scheduled',
   duration: null,
   participants: null,
   location: '',
@@ -173,11 +192,11 @@ const submitForm = async () => {
       title: formData.value.title,
       description: formData.value.description || null,
       start_time: new Date().toISOString(), // 自动设置为当前时间
+      status: formData.value.status || 'scheduled',
       duration: formData.value.duration || null,
       participants: formData.value.participants || null,
       location: formData.value.location || null,
       organizer: formData.value.organizer || null,
-      status: 'draft',
     }
 
     // 调用API创建会议
