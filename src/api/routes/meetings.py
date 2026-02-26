@@ -290,7 +290,7 @@ async def upload_meeting_audio(meeting_id: int):
 
 
 @router.post("/meetings/{meeting_id}/transcribe")
-async def transcribe_meeting(meeting_id: int):
+async def transcribe_meeting(meeting_id: int, db: Session = Depends(get_db)):
     """
     开始会议转录
     触发异步任务处理
@@ -302,10 +302,20 @@ async def transcribe_meeting(meeting_id: int):
     #     "meeting_id": meeting_id,
     # }
     
+    meeting = db.get(Meeting, meeting_id)
+    if not meeting:
+        raise HTTPException(status_code=404, detail="会议不存在")
+
+    meeting.status = MeetingStatus.IN_PROGRESS
+    meeting.updated_at = datetime.utcnow()
+    db.add(meeting)
+    db.commit()
+
     return {
         "status": "processing",
         "task_id": "placeholder_task_id",
         "meeting_id": meeting_id,
+        "meeting_status": meeting.status,
         "message": "转录任务已提交，请稍候",
     }
 
@@ -361,7 +371,7 @@ async def create_meeting_task(meeting_id: int, body: dict, db: "Session" = Depen
 # ==================== 会议分析 ====================
 
 @router.post("/meetings/{meeting_id}/analyze")
-async def analyze_meeting(meeting_id: int):
+async def analyze_meeting(meeting_id: int, db: Session = Depends(get_db)):
     """
     分析会议内容
     生成摘要、关键议题、任务等
@@ -372,9 +382,20 @@ async def analyze_meeting(meeting_id: int):
     #     "task_id": task.id,
     # }
     
+    meeting = db.get(Meeting, meeting_id)
+    if not meeting:
+        raise HTTPException(status_code=404, detail="会议不存在")
+
+    meeting.status = MeetingStatus.COMPLETED
+    meeting.updated_at = datetime.utcnow()
+    db.add(meeting)
+    db.commit()
+
     return {
         "status": "processing",
         "task_id": "placeholder_analyze_id",
+        "meeting_id": meeting_id,
+        "meeting_status": meeting.status,
     }
 
 

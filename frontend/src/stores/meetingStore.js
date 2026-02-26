@@ -9,13 +9,27 @@ export const useMeetingStore = defineStore('meeting', () => {
   const loading = ref(false)
   const error = ref(null)
 
+  const normalizeMeetingStatus = (status) => {
+    const legacyMap = {
+      draft: 'scheduled',
+      pending: 'scheduled',
+      processing: 'in_progress',
+      transcribed: 'in_progress',
+      analyzed: 'completed',
+    }
+    return legacyMap[status] || status
+  }
+
   // 计算属性
   const totalMeetings = computed(() => meetings.value.length)
   const completedMeetings = computed(() =>
-    meetings.value.filter((m) => m.status === 'completed')
+    meetings.value.filter((m) => normalizeMeetingStatus(m.status) === 'completed')
   )
   const pendingMeetings = computed(() =>
-    meetings.value.filter((m) => m.status === 'pending')
+    meetings.value.filter((m) => {
+      const status = normalizeMeetingStatus(m.status)
+      return status === 'scheduled' || status === 'in_progress'
+    })
   )
 
   // 方法

@@ -168,6 +168,16 @@
         <el-form-item label="会议标题" required>
           <el-input v-model="editForm.title" />
         </el-form-item>
+        <el-form-item label="状态" required>
+          <el-select v-model="editForm.status" style="width: 100%">
+            <el-option
+              v-for="option in statusOptions"
+              :key="option.value"
+              :label="option.label"
+              :value="option.value"
+            />
+          </el-select>
+        </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="editForm.description" type="textarea" rows="4" />
         </el-form-item>
@@ -216,26 +226,44 @@ const vizLoading = ref(false)
 
 const meetingId = route.params.id
 
-const getStatusLabel = (status) => {
-  const map = {
-    draft: '草稿',
-    processing: '处理中',
-    completed: '已完成',
-    transcribed: '已转录',
-    analyzed: '已分析',
+const statusOptions = [
+  { value: 'scheduled', label: '已排期' },
+  { value: 'in_progress', label: '进行中' },
+  { value: 'completed', label: '已完成' },
+  { value: 'archived', label: '已归档' },
+]
+
+const normalizeMeetingStatus = (status) => {
+  const legacyMap = {
+    draft: 'scheduled',
+    pending: 'scheduled',
+    processing: 'in_progress',
+    transcribed: 'in_progress',
+    analyzed: 'completed',
   }
-  return map[status] || status
+  return legacyMap[status] || status
+}
+
+const getStatusLabel = (status) => {
+  const normalizedStatus = normalizeMeetingStatus(status)
+  const map = {
+    scheduled: '已排期',
+    in_progress: '进行中',
+    completed: '已完成',
+    archived: '已归档',
+  }
+  return map[normalizedStatus] || normalizedStatus
 }
 
 const getStatusType = (status) => {
+  const normalizedStatus = normalizeMeetingStatus(status)
   const map = {
-    draft: 'info',
-    processing: 'warning',
+    scheduled: 'info',
+    in_progress: 'warning',
     completed: 'success',
-    transcribed: 'primary',
-    analyzed: 'success',
+    archived: 'danger',
   }
-  return map[status] || 'info'
+  return map[normalizedStatus] || 'info'
 }
 
 const onAudioUploadSuccess = (response) => {
@@ -287,7 +315,10 @@ const loadMeetingDetail = async () => {
   try {
     await meetingStore.fetchMeetingDetail(meetingId)
     if (meetingStore.currentMeeting) {
-      editForm.value = { ...meetingStore.currentMeeting }
+      editForm.value = {
+        ...meetingStore.currentMeeting,
+        status: normalizeMeetingStatus(meetingStore.currentMeeting.status),
+      }
     }
   } catch (error) {
     ElMessage.error('加载会议详情失败')
@@ -340,7 +371,11 @@ const loadTasks = async () => {
 
 const saveEdit = async () => {
   try {
-    await meetingStore.updateMeeting(meetingId, editForm.value)
+    const payload = {
+      ...editForm.value,
+      status: normalizeMeetingStatus(editForm.value.status || 'scheduled'),
+    }
+    await meetingStore.updateMeeting(meetingId, payload)
     showEditDialog.value = false
     ElMessage.success('会议已更新')
   } catch (error) {

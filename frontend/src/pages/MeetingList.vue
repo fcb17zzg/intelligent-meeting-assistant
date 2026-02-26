@@ -168,33 +168,46 @@ const filteredMeetings = computed(() => {
   )
 })
 
-const getMeetingStatusLabel = (status) => {
-  const map = {
-    draft: '草稿',
-    processing: '处理中',
-    completed: '已完成',
-    transcribed: '已转录',
-    analyzed: '已分析',
+const normalizeMeetingStatus = (status) => {
+  const legacyMap = {
+    draft: 'scheduled',
+    pending: 'scheduled',
+    processing: 'in_progress',
+    transcribed: 'in_progress',
+    analyzed: 'completed',
   }
-  return map[status] || status
+  return legacyMap[status] || status
+}
+
+const getMeetingStatusLabel = (status) => {
+  const normalizedStatus = normalizeMeetingStatus(status)
+  const map = {
+    scheduled: '已排期',
+    in_progress: '进行中',
+    completed: '已完成',
+    archived: '已归档',
+  }
+  return map[normalizedStatus] || normalizedStatus
 }
 
 const getMeetingStatusType = (status) => {
+  const normalizedStatus = normalizeMeetingStatus(status)
   const map = {
-    draft: 'info',
-    processing: 'warning',
+    scheduled: 'info',
+    in_progress: 'warning',
     completed: 'success',
-    transcribed: 'primary',
-    analyzed: 'success',
+    archived: 'danger',
   }
-  return map[status] || 'info'
+  return map[normalizedStatus] || 'info'
 }
 
 const getMeetingProgress = (meeting) => {
-  if (meeting.status === 'analyzed') return 100
-  if (meeting.status === 'transcribed') return 75
-  if (meeting.status === 'processing') return 50
-  return 25
+  const status = normalizeMeetingStatus(meeting.status)
+  if (status === 'completed') return 100
+  if (status === 'archived') return 100
+  if (status === 'in_progress') return 60
+  if (status === 'scheduled') return 20
+  return 20
 }
 
 const truncate = (text, length) => {
