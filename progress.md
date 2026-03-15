@@ -175,6 +175,7 @@
 - 修复：统一读取 `OPENAI_*` + `NLP_*` + `MEETING_LLM_PROVIDER/NLP_LLM_PROVIDER`，并对 base_url 自动补齐 `/v1`。
 - 已增加运行日志（脱敏）：打印 provider/model/has_api_key/has_base_url，便于快速定位配置问题。
 - 实测：在当前环境 `OPENAI_API_KEY` 可见时，`llm_used=True`，不再触发“LLM API Key未配置”警告。
+- 增强：新增 Windows 用户环境注册表兜底读取（`HKCU\\Environment`），避免“后端进程未继承最新环境变量”导致的误判。
 
 ### 待完成
 

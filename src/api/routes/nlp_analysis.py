@@ -7,6 +7,7 @@ import os
 import re
 from collections import Counter
 from datetime import datetime
+from pathlib import Path
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Body
 from pydantic import BaseModel
@@ -103,23 +104,81 @@ def _summarize_extractive(text: str, summary_length: str = "medium") -> str:
 
 def _resolve_llm_runtime_config() -> dict:
     """统一解析 NLP 摘要接口的 LLM 运行时配置。"""
-    provider = str(os.getenv("MEETING_LLM_PROVIDER") or os.getenv("NLP_LLM_PROVIDER") or "openai").lower()
-    model = os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
-    base_url = os.getenv("OPENAI_BASE_URL") or None
-    api_key = os.getenv("OPENAI_API_KEY") or None
+    dotenv_values = _read_dotenv_values()
+
+    provider = str(
+        _first_non_empty(
+            os.getenv("MEETING_LLM_PROVIDER"),
+            os.getenv("NLP_LLM_PROVIDER"),
+            dotenv_values.get("MEETING_LLM_PROVIDER"),
+            dotenv_values.get("NLP_LLM_PROVIDER"),
+            "openai",
+        )
+    ).lower()
+    model = _first_non_empty(
+        os.getenv("OPENAI_MODEL"),
+        dotenv_values.get("OPENAI_MODEL"),
+        "gpt-4o-mini",
+    )
+    base_url = _first_non_empty(
+        os.getenv("OPENAI_BASE_URL"),
+        os.getenv("NLP_LLM_BASE_URL"),
+        dotenv_values.get("OPENAI_BASE_URL"),
+        dotenv_values.get("NLP_LLM_BASE_URL"),
+    )
+    api_key = _first_non_empty(
+        os.getenv("OPENAI_API_KEY"),
+        os.getenv("OPENAI_APIKEY"),
+        os.getenv("OPENAI_KEY"),
+        os.getenv("NLP_LLM_API_KEY"),
+        dotenv_values.get("OPENAI_API_KEY"),
+        dotenv_values.get("OPENAI_APIKEY"),
+        dotenv_values.get("OPENAI_KEY"),
+        dotenv_values.get("NLP_LLM_API_KEY"),
+    )
+
+    if not api_key:
+        api_key = _first_non_empty(
+            _read_windows_user_env("OPENAI_API_KEY"),
+            _read_windows_user_env("OPENAI_APIKEY"),
+            _read_windows_user_env("OPENAI_KEY"),
+            _read_windows_user_env("NLP_LLM_API_KEY"),
+        )
 
     try:
         from config.nlp_settings import NLPSettings
 
         settings = NLPSettings()
         provider = str(
-            os.getenv("MEETING_LLM_PROVIDER")
-            or os.getenv("NLP_LLM_PROVIDER")
-            or (settings.llm_provider.value if hasattr(settings.llm_provider, "value") else settings.llm_provider)
+            _first_non_empty(
+                os.getenv("MEETING_LLM_PROVIDER"),
+                os.getenv("NLP_LLM_PROVIDER"),
+                dotenv_values.get("MEETING_LLM_PROVIDER"),
+                dotenv_values.get("NLP_LLM_PROVIDER"),
+                (settings.llm_provider.value if hasattr(settings.llm_provider, "value") else settings.llm_provider),
+            )
         ).lower()
-        model = os.getenv("OPENAI_MODEL") or settings.llm_model or model
-        base_url = os.getenv("OPENAI_BASE_URL") or settings.llm_base_url or base_url
-        api_key = os.getenv("OPENAI_API_KEY") or settings.llm_api_key or api_key
+        model = _first_non_empty(os.getenv("OPENAI_MODEL"), dotenv_values.get("OPENAI_MODEL"), settings.llm_model, model)
+        base_url = _first_non_empty(
+            os.getenv("OPENAI_BASE_URL"),
+            os.getenv("NLP_LLM_BASE_URL"),
+            dotenv_values.get("OPENAI_BASE_URL"),
+            dotenv_values.get("NLP_LLM_BASE_URL"),
+            settings.llm_base_url,
+            base_url,
+        )
+        api_key = _first_non_empty(
+            os.getenv("OPENAI_API_KEY"),
+            os.getenv("OPENAI_APIKEY"),
+            os.getenv("OPENAI_KEY"),
+            os.getenv("NLP_LLM_API_KEY"),
+            dotenv_values.get("OPENAI_API_KEY"),
+            dotenv_values.get("OPENAI_APIKEY"),
+            dotenv_values.get("OPENAI_KEY"),
+            dotenv_values.get("NLP_LLM_API_KEY"),
+            settings.llm_api_key,
+            api_key,
+        )
     except Exception:
         pass
 
@@ -133,6 +192,56 @@ def _resolve_llm_runtime_config() -> dict:
         "api_key": api_key,
         "timeout": 60,
     }
+
+
+def _first_non_empty(*values):
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped:
+                return stripped
+            continue
+        return value
+    return None
+
+
+def _read_dotenv_values() -> dict:
+    """读取项目根目录 .env（若存在），用于运行时配置兜底。"""
+    env_file = Path(__file__).resolve().parents[3] / ".env"
+    values = {}
+    if not env_file.exists():
+        return values
+
+    try:
+        for raw_line in env_file.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key:
+                values[key] = value
+    except Exception as err:
+        logger.warning(f"读取 .env 失败，忽略 .env 兜底: {err}")
+
+    return values
+
+
+def _read_windows_user_env(key: str) -> Optional[str]:
+    """在 Windows 上从用户环境变量注册表读取配置，避免进程未继承时误判。"""
+    if os.name != "nt":
+        return None
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment") as reg_key:
+            value, _ = winreg.QueryValueEx(reg_key, key)
+            return str(value).strip() if value else None
+    except Exception:
+        return None
 
 
 def _extract_entities_from_text(text: str, language: str = "zh") -> List[dict]:
