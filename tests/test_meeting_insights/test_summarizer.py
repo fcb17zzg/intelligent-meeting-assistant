@@ -73,7 +73,11 @@ class TestMeetingSummarizer:
             
             assert summarizer.config == mock_config
             assert summarizer.llm_client == mock_client
-            mock_factory.create_client.assert_called_once_with(mock_config['llm'])
+            mock_factory.create_client.assert_called_once()
+            llm_call_config = mock_factory.create_client.call_args[0][0]
+            assert llm_call_config["provider"] == "openai"
+            assert llm_call_config["model"] == "gpt-3.5-turbo"
+            assert llm_call_config["api_key"] == "test_key"
     
     @patch('meeting_insights.summarizer.LLMClientFactory')
     def test_generate_summary_success(self, mock_factory, mock_config, sample_meeting_text, mock_llm_response):
@@ -135,13 +139,33 @@ class TestMeetingSummarizer:
             
             # 验证提示词结构
             assert isinstance(prompt, str)
-            assert "作为专业的会议助理" in prompt
+            assert "企业会议纪要助手" in prompt
             assert "会议时长：20.0分钟" in prompt
             assert "测试对话内容" in prompt
-            assert "JSON格式" in prompt
+            assert "返回 JSON" in prompt
             assert "summary" in prompt
             assert "executive_summary" in prompt
             assert "key_topics" in prompt
+
+    @patch('meeting_insights.summarizer.LLMClientFactory')
+    def test_generate_summary_quality_guard_triggers_fallback(self, mock_factory, mock_config, sample_meeting_text):
+        """测试模型返回无关固定话术时会触发提取式降级"""
+        mock_client = Mock()
+        mock_client.generate_json.return_value = {
+            "summary": "我是AI助手，请提供更多信息后我才能继续。",
+            "executive_summary": "无法处理",
+            "key_topics": [],
+            "decisions": [],
+            "sentiment_overall": 0,
+        }
+        mock_factory.create_client.return_value = mock_client
+
+        summarizer = MeetingSummarizer(mock_config)
+        result = summarizer.generate_summary(sample_meeting_text, duration=1800)
+
+        assert isinstance(result, dict)
+        assert result["summary"]
+        assert "请提供更多信息" not in result["summary"]
     
     @patch('meeting_insights.summarizer.LLMClientFactory')
     def test_extract_key_topics_llm(self, mock_factory, mock_config, sample_meeting_text):
