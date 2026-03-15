@@ -149,7 +149,11 @@ class MeetingUpdate(SQLModel):
     duration: Optional[float] = None
     participants: Optional[int] = None
     status: Optional[MeetingStatus] = None
+    audio_path: Optional[str] = None
+    transcript_raw: Optional[str] = None
+    transcript_formatted: Optional[str] = None
     summary: Optional[str] = None
+    summary_type: Optional[str] = None
     key_topics: Optional[str] = None
 
 
@@ -158,7 +162,9 @@ class MeetingRead(MeetingBase):
     id: int
     status: MeetingStatus
     owner_id: int
+    audio_path: Optional[str] = None
     summary: Optional[str] = None
+    summary_type: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

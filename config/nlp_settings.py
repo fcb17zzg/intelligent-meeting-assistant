@@ -15,7 +15,7 @@ class NLPSettings(BaseSettings):
     
     # LLM配置
     llm_provider: LLMProvider = LLMProvider.OPENAI
-    llm_model: str = "gpt-3.5-turbo"
+    llm_model: str = "gpt-4o-mini"
     llm_api_key: Optional[str] = None
     llm_base_url: Optional[str] = None
     llm_temperature: float = 0.3

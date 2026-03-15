@@ -1,19 +1,32 @@
+import logging
+import os
 from typing import Dict, Any, List, Optional
 from .models import MeetingInsights, KeyTopic
 from src.nlp_processing.llm_client import LLMClientFactory
+
+logger = logging.getLogger(__name__)
 
 class MeetingSummarizer:
     """会议摘要生成器"""
     
     def __init__(self, config: Dict[str, Any]):
-        self.config = config
-        self.llm_client = LLMClientFactory.create_client(config.get('llm', {}))
+        self.config = config or {}
+        self.llm_client = None
+
+        llm_config = self._resolve_llm_config(self.config.get('llm', {}))
+        if llm_config:
+            try:
+                self.llm_client = LLMClientFactory.create_client(llm_config)
+            except Exception as exc:
+                logger.warning(f"初始化会议摘要 LLM 失败，使用降级摘要: {exc}")
     
     def generate_summary(self, formatted_text: str, duration: float) -> Dict[str, Any]:
         """生成会议摘要"""
         prompt = self._create_summary_prompt(formatted_text, duration)
         
         try:
+            if not self.llm_client:
+                raise RuntimeError("LLM client unavailable")
             result = self.llm_client.generate_json(prompt)
             return self._validate_summary_result(result)
         except Exception as e:
@@ -49,7 +62,7 @@ class MeetingSummarizer:
     def extract_key_topics(self, text: str) -> List[KeyTopic]:
         """提取关键议题"""
         # 方法1：使用LLM（更准确但慢）
-        if self.config.get('use_llm_for_topics', True):
+        if self.config.get('use_llm_for_topics', True) and self.llm_client:
             return self._llm_extract_topics(text)
         
         # 方法2：使用关键词提取（更快）
@@ -122,8 +135,10 @@ class MeetingSummarizer:
     def _fallback_extractive_summary(self, text: str) -> Dict:
         """降级方案：提取式摘要"""
         # 简单的提取式摘要实现
-        sentences = text.split('。')
-        summary = '。'.join(sentences[:3]) + '。'
+        sentences = [sentence.strip() for sentence in text.split('。') if sentence.strip()]
+        summary = '。'.join(sentences[:3])
+        if summary and not summary.endswith('。'):
+            summary += '。'
         
         return {
             "summary": summary,
@@ -132,3 +147,36 @@ class MeetingSummarizer:
             "decisions": [],
             "sentiment_overall": 0.0
         }
+
+    def _resolve_llm_config(self, llm_config: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """解析摘要器 LLM 配置，优先使用环境变量。"""
+        config = dict(llm_config or {})
+
+        try:
+            from config.nlp_settings import NLPSettings
+
+            settings = NLPSettings()
+            provider = config.get('provider') or os.getenv('MEETING_LLM_PROVIDER') or os.getenv('NLP_LLM_PROVIDER')
+            if not provider:
+                provider = settings.llm_provider.value if hasattr(settings.llm_provider, 'value') else str(settings.llm_provider)
+
+            resolved = {
+                'provider': str(provider).lower(),
+                'model': config.get('model') or os.getenv('OPENAI_MODEL') or settings.llm_model,
+                'base_url': config.get('base_url') or os.getenv('OPENAI_BASE_URL') or settings.llm_base_url,
+                'api_key': config.get('api_key') or os.getenv('OPENAI_API_KEY') or settings.llm_api_key,
+                'timeout': config.get('timeout', 60),
+            }
+        except Exception:
+            resolved = {
+                'provider': str(config.get('provider') or os.getenv('MEETING_LLM_PROVIDER') or 'openai').lower(),
+                'model': config.get('model') or os.getenv('OPENAI_MODEL') or 'gpt-4o-mini',
+                'base_url': config.get('base_url') or os.getenv('OPENAI_BASE_URL'),
+                'api_key': config.get('api_key') or os.getenv('OPENAI_API_KEY'),
+                'timeout': config.get('timeout', 60),
+            }
+
+        if resolved['provider'] in {'openai', 'qwen'} and not resolved.get('api_key'):
+            return None
+
+        return resolved
