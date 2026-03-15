@@ -177,6 +177,11 @@
 - 实测：在当前环境 `OPENAI_API_KEY` 可见时，`llm_used=True`，不再触发“LLM API Key未配置”警告。
 - 增强：新增 Windows 用户环境注册表兜底读取（`HKCU\\Environment`），避免“后端进程未继承最新环境变量”导致的误判。
 
+12. 已修复 `has_base_url=False` 误判
+- 根因：`OPENAI_BASE_URL` 在部分进程中未继承时，旧逻辑未对 base_url 做注册表兜底。
+- 修复：base_url 现支持 `OPENAI_BASE_URL / OPENAI_BASEURL / NLP_LLM_BASE_URL`，并增加 Windows 用户环境注册表兜底读取。
+- 验证：模拟清空进程内 `OPENAI_BASE_URL` 后，仍能从 `HKCU\\Environment` 读取 `https://yunwu.ai/v1`，`has_base_url=True`。
+
 ### 待完成
 
 1. 接入真实 OpenAI Key 后，验证 abstractive 摘要质量。

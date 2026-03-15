@@ -122,8 +122,10 @@ def _resolve_llm_runtime_config() -> dict:
     )
     base_url = _first_non_empty(
         os.getenv("OPENAI_BASE_URL"),
+        os.getenv("OPENAI_BASEURL"),
         os.getenv("NLP_LLM_BASE_URL"),
         dotenv_values.get("OPENAI_BASE_URL"),
+        dotenv_values.get("OPENAI_BASEURL"),
         dotenv_values.get("NLP_LLM_BASE_URL"),
     )
     api_key = _first_non_empty(
@@ -145,6 +147,13 @@ def _resolve_llm_runtime_config() -> dict:
             _read_windows_user_env("NLP_LLM_API_KEY"),
         )
 
+    if not base_url:
+        base_url = _first_non_empty(
+            _read_windows_user_env("OPENAI_BASE_URL"),
+            _read_windows_user_env("OPENAI_BASEURL"),
+            _read_windows_user_env("NLP_LLM_BASE_URL"),
+        )
+
     try:
         from config.nlp_settings import NLPSettings
 
@@ -161,8 +170,10 @@ def _resolve_llm_runtime_config() -> dict:
         model = _first_non_empty(os.getenv("OPENAI_MODEL"), dotenv_values.get("OPENAI_MODEL"), settings.llm_model, model)
         base_url = _first_non_empty(
             os.getenv("OPENAI_BASE_URL"),
+            os.getenv("OPENAI_BASEURL"),
             os.getenv("NLP_LLM_BASE_URL"),
             dotenv_values.get("OPENAI_BASE_URL"),
+            dotenv_values.get("OPENAI_BASEURL"),
             dotenv_values.get("NLP_LLM_BASE_URL"),
             settings.llm_base_url,
             base_url,
