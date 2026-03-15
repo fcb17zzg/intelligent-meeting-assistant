@@ -58,12 +58,14 @@ class LLMConfigChecker:
     def check_openai_connection(self, api_key: Optional[str] = None) -> Dict[str, Any]:
         """检查 OpenAI 连接"""
         try:
-            import openai
+            from openai import OpenAI
             
             print(f"\n检查 OpenAI 连接")
             
             if not api_key:
                 api_key = os.getenv("OPENAI_API_KEY")
+
+            base_url = os.getenv("OPENAI_BASE_URL") or None
             
             if not api_key:
                 return {
@@ -73,21 +75,23 @@ class LLMConfigChecker:
                     "message": "请设置 OPENAI_API_KEY 环境变量"
                 }
             
-            openai.api_key = api_key
+            client = OpenAI(api_key=api_key, base_url=base_url)
             
             # 尝试获取模型列表
-            models = openai.Model.list()
+            models = client.models.list()
             print(f"✓ OpenAI 连接成功")
-            print(f"  可用模型数: {len(models.data)}")
+            model_items = list(models.data)
+            print(f"  可用模型数: {len(model_items)}")
             
             # 获取常用模型
-            common_models = [m.id for m in models.data if "gpt" in m.id.lower()][:5]
+            common_models = [m.id for m in model_items if "gpt" in m.id.lower()][:5]
             for model in common_models:
                 print(f"    - {model}")
             
             return {
                 "status": "connected",
                 "provider": "openai",
+                "base_url": base_url,
                 "models": common_models,
                 "message": f"OpenAI 连接成功，可用 GPT 模型: {len(common_models)}"
             }
@@ -216,6 +220,7 @@ class LLMConfigChecker:
             
             if provider == "openai":
                 config['api_key'] = os.getenv("OPENAI_API_KEY")
+                config['base_url'] = os.getenv("OPENAI_BASE_URL")
             
             # 创建客户端
             client = LLMClientFactory.create_client(config)

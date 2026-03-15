@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 from typing import Dict, Any, List, Optional
 from .models import MeetingInsights, KeyTopic
 from src.nlp_processing.llm_client import LLMClientFactory
@@ -175,6 +176,11 @@ class MeetingSummarizer:
                 'api_key': config.get('api_key') or os.getenv('OPENAI_API_KEY'),
                 'timeout': config.get('timeout', 60),
             }
+
+        if resolved['provider'] in {'openai', 'qwen'}:
+            base_url = resolved.get('base_url')
+            if base_url and not re.search(r'/v\d+$', str(base_url).rstrip('/')):
+                resolved['base_url'] = str(base_url).rstrip('/') + '/v1'
 
         if resolved['provider'] in {'openai', 'qwen'} and not resolved.get('api_key'):
             return None

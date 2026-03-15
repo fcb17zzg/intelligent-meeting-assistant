@@ -228,6 +228,10 @@ def _build_llm_config() -> Optional[dict]:
     except Exception:
         pass
 
+    if provider in {"openai", "qwen"}:
+        if base_url and not re.search(r"/v\d+$", base_url.rstrip("/")):
+            base_url = base_url.rstrip("/") + "/v1"
+
     if provider in {"openai", "qwen"} and not api_key:
         return None
 
