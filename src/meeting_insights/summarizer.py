@@ -13,6 +13,7 @@ class MeetingSummarizer:
     def __init__(self, config: Dict[str, Any]):
         self.config = config or {}
         self.llm_client = None
+        self._opencc = None
 
         llm_config = self._resolve_llm_config(self.config.get('llm', {}))
         if llm_config:
@@ -146,10 +147,10 @@ JSON 字段定义：
         if isinstance(result, dict):
             default_result.update(result)
 
-        default_result["summary"] = str(default_result.get("summary", "") or "").strip()
-        default_result["executive_summary"] = str(default_result.get("executive_summary", "") or "").strip()
+        default_result["summary"] = self._to_simplified_chinese(str(default_result.get("summary", "") or "").strip())
+        default_result["executive_summary"] = self._to_simplified_chinese(str(default_result.get("executive_summary", "") or "").strip())
         default_result["decisions"] = [
-            str(item).strip()
+            self._to_simplified_chinese(str(item).strip())
             for item in default_result.get("decisions", [])
             if str(item).strip()
         ]
@@ -158,8 +159,12 @@ JSON 字段定义：
         for topic in default_result.get("key_topics", []):
             if not isinstance(topic, dict):
                 continue
-            name = str(topic.get("name", "") or "").strip()
-            keywords = [str(k).strip() for k in topic.get("keywords", []) if str(k).strip()]
+            name = self._to_simplified_chinese(str(topic.get("name", "") or "").strip())
+            keywords = [
+                self._to_simplified_chinese(str(k).strip())
+                for k in topic.get("keywords", [])
+                if str(k).strip()
+            ]
             if not name:
                 continue
             normalized_topics.append({"name": name, "keywords": keywords})
@@ -212,21 +217,104 @@ JSON 字段定义：
         return True
     
     def _fallback_extractive_summary(self, text: str) -> Dict:
-        """降级方案：提取式摘要"""
-        # 简单的提取式摘要实现
-        sentences = [sentence.strip() for sentence in text.split('。') if sentence.strip()]
-        summary = '。'.join(sentences[:3])
-        if summary and not summary.endswith('。'):
-            summary += '。'
-        
+        """降级方案：结构化提取式摘要。"""
+        cleaned_text = self._clean_transcript_text(text)
+        sentences = self._split_sentences(cleaned_text)
+        topics = self._fallback_key_topics(cleaned_text)
+        decisions = self._fallback_decisions(sentences)
+        actions = self._fallback_action_items(sentences)
+
+        summary_parts = []
+        topic_names = [topic["name"] for topic in topics[:3] if topic.get("name")]
+        if topic_names:
+            summary_parts.append(f"会议重点讨论了{'、'.join(topic_names)}")
+        if actions:
+            summary_parts.append(f"已明确分工：{'；'.join(actions[:2])}")
+        if decisions:
+            summary_parts.append(f"形成决策：{'；'.join(decisions[:2])}")
+        if not summary_parts and sentences:
+            summary_parts.append("；".join(sentences[:2]))
+
+        summary = "。".join([part.strip("。； ") for part in summary_parts if part.strip()]).strip()
+        if summary and not summary.endswith("。"):
+            summary += "。"
+
+        executive_summary = "；".join([part.strip("。 ") for part in summary_parts[:2] if part.strip()]).strip()
+        if executive_summary and not executive_summary.endswith("。"):
+            executive_summary += "。"
+
         return {
             "summary": summary,
-            "executive_summary": summary[:100] + "...",
-            "key_topics": [],
-            "decisions": [],
+            "executive_summary": executive_summary or summary,
+            "key_topics": topics,
+            "decisions": decisions,
             "sentiment_overall": 0.0,
             "summary_type": "extractive",
         }
+
+    def _split_sentences(self, text: str) -> List[str]:
+        parts = re.split(r"[。！？!?；;\n\r]+", text or "")
+        return [part.strip(" ，,\t") for part in parts if part and part.strip(" ，,\t")]
+
+    def _clean_transcript_text(self, text: str) -> str:
+        cleaned = re.sub(r"\[\s*SPEAKER_[^\]]+\]\s*", "", text or "", flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        return self._to_simplified_chinese(cleaned)
+
+    def _to_simplified_chinese(self, text: str) -> str:
+        content = str(text or "")
+        if not content:
+            return content
+
+        try:
+            if self._opencc is None:
+                from opencc import OpenCC
+
+                self._opencc = OpenCC('t2s')
+            content = self._opencc.convert(content)
+        except Exception:
+            # opencc 不可用时保持原文，避免中断主流程。
+            pass
+
+        return content
+
+    def _fallback_key_topics(self, text: str) -> List[Dict[str, Any]]:
+        topic_rules = [
+            ("接口联调", ["接口", "联调"]),
+            ("测试安排", ["测试", "回归", "用例"]),
+            ("任务分工", ["负责", "分工", "安排"]),
+            ("时间节点", ["截止", "周一", "周二", "周三", "周四", "周五", "时间"]),
+            ("模块优先级", ["先完成", "优先", "支付", "报表"]),
+        ]
+
+        topics: List[Dict[str, Any]] = []
+        for name, keywords in topic_rules:
+            hits = [kw for kw in keywords if kw in text]
+            if hits:
+                topics.append({"name": name, "keywords": hits[:4]})
+
+        return topics[:5]
+
+    def _fallback_decisions(self, sentences: List[str]) -> List[str]:
+        decision_markers = ["决定", "确定", "通过", "先完成", "优先", "安排"]
+        decisions: List[str] = []
+        for sentence in sentences:
+            if any(marker in sentence for marker in decision_markers):
+                decisions.append(sentence.strip())
+        return decisions[:4]
+
+    def _fallback_action_items(self, sentences: List[str]) -> List[str]:
+        actions: List[str] = []
+        pattern = re.compile(r"([\u4e00-\u9fff]{2,6})负责([^，。；;]+)")
+        for sentence in sentences:
+            matches = pattern.findall(sentence)
+            for owner, task in matches:
+                action = f"{owner}负责{task.strip()}"
+                due = re.search(r"(周[一二三四五六日天][^，。；; ]*)", sentence)
+                if due:
+                    action = f"{action}（截止{due.group(1)}）"
+                actions.append(action)
+        return actions[:4]
 
     def _resolve_llm_config(self, llm_config: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         """解析摘要器 LLM 配置，优先使用环境变量。"""

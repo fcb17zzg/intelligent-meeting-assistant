@@ -1,0 +1,55 @@
+{
+  "meeting_id": 51,
+  "audio_path": "H:\\study\\graduate_paper\\auto-meeting-assistent\\test_audio\\generated\\meeting_sample_20260316_000314.wav",
+  "audio_size_bytes": 867162,
+  "source_script": "今天是项目周会。李明负责接口联调，截止时间是周五下午六点。王芳负责测试用例编写，下周一开始回归测试。本次会议决定先完成支付模块，再处理报表优化。",
+  "transcription": {
+    "status": "completed",
+    "segments_count": 3,
+    "transcript_endpoint_segments_count": 3,
+    "text_length": 110,
+    "text_preview": "[SPEAKER_00] 今天是項目周慧 李明負責接口連條 截止時間是周五下午六點\n[SPEAKER_00] 王方負責測試用力邊寫 下周一開始回歸測試\n[SPEAKER_00] 本次會議決定先完成支付模塊 再處理報表優化",
+    "keyword_eval": {
+      "keywords": [
+        "接口",
+        "测试",
+        "周五",
+        "回归",
+        "支付模块"
+      ],
+      "hit_keywords": [
+        "接口",
+        "周五"
+      ],
+      "hit_count": 2,
+      "hit_ratio": 0.4
+    }
+  },
+  "summary": {
+    "summary_type": "extractive",
+    "text_length": 179,
+    "text_preview": "会议重点讨论了接口联调、测试安排、任务分工。已明确分工：李明负责接口连条 截止时间是周五下午六点 王方负责测试用力边写 下周一开始回归测试 本次会议决定先完成支付模块 再处理报表优化（截止周五下午六点）。形成决策：今天是项目周慧 李明负责接口连条 截止时间是周五下午六点 王方负责测试用力边写 下周一开始回归测试 本次会议决定先完成支付模块 再处理报表优化。",
+    "action_items_count": 1,
+    "keyword_eval": {
+      "keywords": [
+        "接口",
+        "测试",
+        "周五",
+        "回归",
+        "支付模块"
+      ],
+      "hit_keywords": [
+        "接口",
+        "测试",
+        "周五",
+        "回归",
+        "支付模块"
+      ],
+      "hit_count": 5,
+      "hit_ratio": 1.0
+    }
+  },
+  "elapsed_seconds": 16.3,
+  "pass": true,
+  "generated_at": "2026-03-16T00:03:31.523363"
+}

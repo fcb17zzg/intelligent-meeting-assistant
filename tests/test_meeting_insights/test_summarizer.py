@@ -267,6 +267,26 @@ class TestMeetingSummarizer:
                 assert isinstance(result["key_topics"], list)
             if "decisions" in result:
                 assert isinstance(result["decisions"], list)
+
+    def test_fallback_summary_is_structured_not_raw_transcript(self, mock_config):
+        """测试降级摘要不会原样复制转录文本，并能输出结构化议题。"""
+        with patch('meeting_insights.summarizer.LLMClientFactory'):
+            summarizer = MeetingSummarizer(mock_config)
+
+            transcript_text = (
+                "[SPEAKER_00] 今天是項目周慧 李明負責接口連條 截止時間是周五下午六點\n"
+                "[SPEAKER_00] 王方負責測試用力邊寫 下周一開始回歸測試\n"
+                "[SPEAKER_00] 本次會議決定先完成支付模塊 再處理報表優化"
+            )
+
+            result = summarizer._fallback_extractive_summary(transcript_text)
+
+            assert result["summary_type"] == "extractive"
+            assert "[SPEAKER_00]" not in result["summary"]
+            assert "会议重点讨论了" in result["summary"]
+            assert isinstance(result["key_topics"], list)
+            assert any(topic.get("name") == "接口联调" for topic in result["key_topics"])
+            assert all(topic.get("name") != "负责" for topic in result["key_topics"])
     
     def test_with_real_config(self):
         """测试使用真实配置"""
