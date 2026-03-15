@@ -99,6 +99,7 @@ class TestMeetingSummarizer:
         assert "key_topics" in result
         assert "decisions" in result
         assert "sentiment_overall" in result
+        assert result["summary_type"] == "abstractive"
         
         assert result["summary"] == mock_llm_response["summary"]
         assert len(result["key_topics"]) == 2
@@ -124,6 +125,7 @@ class TestMeetingSummarizer:
         # 验证降级结果
         assert isinstance(result, dict)
         assert "summary" in result
+        assert result["summary_type"] == "extractive"
         # 降级摘要可能不同，但应该有内容
         assert len(result.get("summary", "")) > 0 or result.get("key_topics") is not None
     
@@ -165,6 +167,7 @@ class TestMeetingSummarizer:
 
         assert isinstance(result, dict)
         assert result["summary"]
+        assert result["summary_type"] == "extractive"
         assert "请提供更多信息" not in result["summary"]
     
     @patch('meeting_insights.summarizer.LLMClientFactory')
@@ -232,7 +235,12 @@ class TestMeetingSummarizer:
             }
             
             validated = summarizer._validate_summary_result(valid_result)
-            assert validated == valid_result
+            assert validated["summary"] == valid_result["summary"]
+            assert validated["executive_summary"] == valid_result["executive_summary"]
+            assert validated["key_topics"] == valid_result["key_topics"]
+            assert validated["decisions"] == valid_result["decisions"]
+            assert validated["sentiment_overall"] == valid_result["sentiment_overall"]
+            assert validated["summary_type"] == "abstractive"
             
             # 无效结果（缺少必要字段）
             invalid_result = {"summary": "测试"}

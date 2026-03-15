@@ -254,7 +254,7 @@ def _generate_summary_payload(transcript_text: str, duration: Optional[float]) -
     summary_data["executive_summary"] = str(summary_data.get("executive_summary", "") or "").strip()
     summary_data["decisions"] = [str(item).strip() for item in summary_data.get("decisions", []) if str(item).strip()]
     summary_data["key_topics"] = [topic for topic in summary_data.get("key_topics", []) if topic]
-    summary_data["summary_type"] = "abstractive" if llm_config else "extractive"
+    summary_data["summary_type"] = summary_data.get("summary_type") or ("abstractive" if llm_config else "extractive")
     return summary_data
 
 

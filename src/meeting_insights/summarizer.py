@@ -32,11 +32,14 @@ class MeetingSummarizer:
             validated = self._validate_summary_result(result)
             if not self._is_summary_quality_acceptable(validated, formatted_text):
                 raise ValueError("LLM summary quality check failed")
+            validated["summary_type"] = "abstractive"
             return validated
         except Exception as e:
             # 降级策略：使用提取式摘要
             logger.warning(f"摘要生成降级为提取式: {e}")
-            return self._fallback_extractive_summary(formatted_text)
+            fallback = self._fallback_extractive_summary(formatted_text)
+            fallback["summary_type"] = "extractive"
+            return fallback
     
     def _create_summary_prompt(self, text: str, duration: float) -> str:
         """创建摘要提示词"""
@@ -136,7 +139,8 @@ JSON 字段定义：
             "executive_summary": "",
             "key_topics": [],
             "decisions": [],
-            "sentiment_overall": 0.0
+            "sentiment_overall": 0.0,
+            "summary_type": "abstractive",
         }
         
         if isinstance(result, dict):
@@ -220,7 +224,8 @@ JSON 字段定义：
             "executive_summary": summary[:100] + "...",
             "key_topics": [],
             "decisions": [],
-            "sentiment_overall": 0.0
+            "sentiment_overall": 0.0,
+            "summary_type": "extractive",
         }
 
     def _resolve_llm_config(self, llm_config: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
