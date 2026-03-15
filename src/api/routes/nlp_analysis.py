@@ -3,6 +3,7 @@ NLP分析API路由
 集成NLP处理模块的功能
 """
 import logging
+import os
 import re
 from collections import Counter
 from datetime import datetime
@@ -98,6 +99,40 @@ def _summarize_extractive(text: str, summary_length: str = "medium") -> str:
     if summary and not summary.endswith(("。", "！", "？", ".", "!", "?")):
         summary += "。"
     return summary
+
+
+def _resolve_llm_runtime_config() -> dict:
+    """统一解析 NLP 摘要接口的 LLM 运行时配置。"""
+    provider = str(os.getenv("MEETING_LLM_PROVIDER") or os.getenv("NLP_LLM_PROVIDER") or "openai").lower()
+    model = os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
+    base_url = os.getenv("OPENAI_BASE_URL") or None
+    api_key = os.getenv("OPENAI_API_KEY") or None
+
+    try:
+        from config.nlp_settings import NLPSettings
+
+        settings = NLPSettings()
+        provider = str(
+            os.getenv("MEETING_LLM_PROVIDER")
+            or os.getenv("NLP_LLM_PROVIDER")
+            or (settings.llm_provider.value if hasattr(settings.llm_provider, "value") else settings.llm_provider)
+        ).lower()
+        model = os.getenv("OPENAI_MODEL") or settings.llm_model or model
+        base_url = os.getenv("OPENAI_BASE_URL") or settings.llm_base_url or base_url
+        api_key = os.getenv("OPENAI_API_KEY") or settings.llm_api_key or api_key
+    except Exception:
+        pass
+
+    if provider in {"openai", "qwen"} and base_url and not re.search(r"/v\d+$", str(base_url).rstrip("/")):
+        base_url = str(base_url).rstrip("/") + "/v1"
+
+    return {
+        "provider": provider,
+        "model": model,
+        "base_url": base_url,
+        "api_key": api_key,
+        "timeout": 60,
+    }
 
 
 def _extract_entities_from_text(text: str, language: str = "zh") -> List[dict]:
@@ -521,21 +556,21 @@ async def text_summarization(
         llm_used = False
 
         try:
-            from config.nlp_settings import NLPSettings
             from src.nlp_processing.llm_client import LLMClientFactory
 
-            settings = NLPSettings()
-            provider = settings.llm_provider.value if hasattr(settings.llm_provider, 'value') else str(settings.llm_provider)
-            llm_config = {
-                "provider": provider,
-                "model": settings.llm_model,
-                "base_url": settings.llm_base_url,
-                "api_key": settings.llm_api_key,
-                "timeout": 60,
-            }
+            llm_config = _resolve_llm_runtime_config()
+            provider = str(llm_config.get("provider") or "openai")
 
             if provider in {"openai", "qwen"} and not llm_config.get("api_key"):
                 raise ValueError("LLM API Key未配置，使用提取式摘要")
+
+            logger.info(
+                "摘要LLM配置: provider=%s, model=%s, has_api_key=%s, has_base_url=%s",
+                provider,
+                llm_config.get("model"),
+                bool(llm_config.get("api_key")),
+                bool(llm_config.get("base_url")),
+            )
 
             prompt = (
                 "请为下面会议文本生成简洁摘要（中文），仅输出摘要正文，不要标题和解释。"
