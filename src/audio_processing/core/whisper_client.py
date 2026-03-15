@@ -54,6 +54,7 @@ class WhisperClient:
         self.model = None
         self._is_initialized = False
         self._using_faster_whisper = False
+        self._init_error = ""
         
         # 自动检测设备
         if self.config.device == "auto":
@@ -69,6 +70,7 @@ class WhisperClient:
         """初始化模型"""
         if self._is_initialized:
             return True
+        self._init_error = ""
         
         try:
             # 尝试使用faster-whisper
@@ -86,7 +88,8 @@ class WhisperClient:
             self._is_initialized = True
             return True
             
-        except ImportError:
+        except ImportError as exc:
+            self._init_error = f"faster-whisper未安装: {exc}"
             logger.warning("faster-whisper未安装，尝试使用原始whisper")
         
         try:
@@ -104,7 +107,15 @@ class WhisperClient:
             self._is_initialized = True
             return True
             
+        except ImportError as exc:
+            self._init_error = (
+                "未检测到可用的 Whisper 依赖。请安装 openai-whisper 或 faster-whisper。"
+                f" 原始错误: {exc}"
+            )
+            logger.error(self._init_error)
+            return False
         except Exception as e:
+            self._init_error = str(e)
             logger.error(f"Whisper模型加载失败: {e}")
             return False
     
@@ -119,7 +130,8 @@ class WhisperClient:
     ) -> WhisperTranscription:
         """转录音频"""
         if not self._is_initialized and not self.initialize():
-            raise RuntimeError("Whisper模型未初始化")
+            detail = f": {self._init_error}" if self._init_error else ""
+            raise RuntimeError(f"Whisper模型未初始化{detail}")
         
         start_time = time.time()
         

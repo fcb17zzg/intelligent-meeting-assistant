@@ -128,10 +128,23 @@ async def transcribe_audio(
             client = WhisperClient(whisper_config)
             
             # 执行转录
-            result = client.transcribe(
-                str(file_path),
-                language=resolved_language if resolved_language != "auto" else None,
-            )
+            try:
+                result = client.transcribe(
+                    str(file_path),
+                    language=resolved_language if resolved_language != "auto" else None,
+                )
+            except RuntimeError as runtime_error:
+                error_message = str(runtime_error)
+                if "Whisper模型未初始化" in error_message:
+                    logger.error(f"转录引擎不可用: {error_message}")
+                    raise HTTPException(
+                        status_code=503,
+                        detail=(
+                            "Whisper 转录引擎不可用。请安装 openai-whisper 或 faster-whisper，"
+                            "并确认可下载对应模型后重试。"
+                        ),
+                    )
+                raise
             
             logger.info(f"转录成功: {resolved_file_id}")
             
