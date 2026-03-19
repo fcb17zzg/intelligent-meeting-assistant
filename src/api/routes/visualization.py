@@ -55,21 +55,9 @@ async def generate_speaker_distribution(
                 "created_at": datetime.utcnow().isoformat(),
             }
         
-        except ImportError:
-            # 模拟结果
-            logger.warning("可视化模块不可用，返回模拟结果")
-            
-            return {
-                "status": "success",
-                "chart_type": "speaker_pie_chart",
-                "chart_data": {
-                    "labels": ["张三", "李四", "王五"],
-                    "values": [35, 30, 35],
-                    "colors": ["#3498db", "#e74c3c", "#2ecc71"]
-                },
-                "format": output_format,
-                "created_at": datetime.utcnow().isoformat(),
-            }
+        except ImportError as import_error:
+            logger.exception("可视化模块导入失败: %s", import_error)
+            raise HTTPException(status_code=500, detail=f"可视化模块导入失败: {import_error}") from import_error
     
     except Exception as e:
         logger.error(f"说话人分布图表生成失败: {e}")
@@ -113,21 +101,9 @@ async def generate_action_items_chart(
                 "created_at": datetime.utcnow().isoformat(),
             }
         
-        except ImportError:
-            # 模拟结果
-            logger.warning("可视化模块不可用，返回模拟结果")
-            
-            return {
-                "status": "success",
-                "chart_type": "priority_bar_chart",
-                "chart_data": {
-                    "x_labels": ["高", "中", "低"],
-                    "values": [5, 8, 3],
-                    "colors": ["#e74c3c", "#f39c12", "#2ecc71"]
-                },
-                "format": output_format,
-                "created_at": datetime.utcnow().isoformat(),
-            }
+        except ImportError as import_error:
+            logger.exception("可视化模块导入失败: %s", import_error)
+            raise HTTPException(status_code=500, detail=f"可视化模块导入失败: {import_error}") from import_error
     
     except Exception as e:
         logger.error(f"行动项柱状图生成失败: {e}")
@@ -171,23 +147,9 @@ async def generate_timeline_chart(
                 "created_at": datetime.utcnow().isoformat(),
             }
         
-        except ImportError:
-            # 模拟结果
-            logger.warning("可视化模块不可用，返回模拟结果")
-            
-            return {
-                "status": "success",
-                "chart_type": "timeline_chart",
-                "timeline_events": [
-                    {"time": "00:00", "event": "会议开始", "speaker": "主持人"},
-                    {"time": "05:30", "event": "项目进展汇报", "speaker": "张三"},
-                    {"time": "15:45", "event": "问题讨论", "speaker": "李四"},
-                    {"time": "25:00", "event": "任务分配", "speaker": "王五"},
-                    {"time": "30:00", "event": "会议结束", "speaker": "主持人"},
-                ],
-                "format": output_format,
-                "created_at": datetime.utcnow().isoformat(),
-            }
+        except ImportError as import_error:
+            logger.exception("可视化模块导入失败: %s", import_error)
+            raise HTTPException(status_code=500, detail=f"可视化模块导入失败: {import_error}") from import_error
     
     except Exception as e:
         logger.error(f"时间轴图表生成失败: {e}")
@@ -231,23 +193,9 @@ async def generate_topics_bubble_chart(
                 "created_at": datetime.utcnow().isoformat(),
             }
         
-        except ImportError:
-            # 模拟结果
-            logger.warning("可视化模块不可用，返回模拟结果")
-            
-            return {
-                "status": "success",
-                "chart_type": "topic_bubble_chart",
-                "bubbles": [
-                    {"topic": "项目进展", "size": 100, "x": 30, "y": 60},
-                    {"topic": "问题解决", "size": 80, "x": 70, "y": 40},
-                    {"topic": "资源分配", "size": 60, "x": 50, "y": 80},
-                    {"topic": "时间规划", "size": 70, "x": 20, "y": 30},
-                    {"topic": "人员分工", "size": 55, "x": 80, "y": 70},
-                ],
-                "format": output_format,
-                "created_at": datetime.utcnow().isoformat(),
-            }
+        except ImportError as import_error:
+            logger.exception("可视化模块导入失败: %s", import_error)
+            raise HTTPException(status_code=500, detail=f"可视化模块导入失败: {import_error}") from import_error
     
     except Exception as e:
         logger.error(f"主题气泡图生成失败: {e}")
@@ -295,25 +243,9 @@ async def generate_dashboard(
                 "created_at": datetime.utcnow().isoformat(),
             }
         
-        except ImportError:
-            # 模拟结果
-            logger.warning("可视化模块不可用，返回模拟结果")
-            
-            return {
-                "status": "success",
-                "chart_type": "dashboard",
-                "meeting_id": resolved_meeting_id,
-                "dashboard": {
-                    "summary": "会议总结",
-                    "duration": "30 分钟",
-                    "participants": 5,
-                    "action_items": 8,
-                    "key_topics": 4,
-                    "sentiment": "正面",
-                },
-                "format": output_format,
-                "created_at": datetime.utcnow().isoformat(),
-            }
+        except ImportError as import_error:
+            logger.exception("可视化模块导入失败: %s", import_error)
+            raise HTTPException(status_code=500, detail=f"可视化模块导入失败: {import_error}") from import_error
     
     except Exception as e:
         logger.error(f"仪表盘生成失败: {e}")
@@ -365,23 +297,9 @@ async def generate_report(
                 "generated_at": datetime.utcnow().isoformat(),
             }
         
-        except ImportError:
-            # 模拟结果
-            logger.warning("可视化模块不可用，返回模拟结果")
-            
-            return {
-                "status": "success",
-                "report_type": report_format,
-                "report": {
-                    "title": title or "会议报告",
-                    "meeting_date": datetime.utcnow().isoformat(),
-                    "duration": "30 分钟",
-                    "summary": "这是模拟的会议报告内容",
-                    "key_topics": ["项目进展", "问题解决"],
-                    "action_items": ["完成任务A", "推进任务B"],
-                },
-                "generated_at": datetime.utcnow().isoformat(),
-            }
+        except ImportError as import_error:
+            logger.exception("可视化模块导入失败: %s", import_error)
+            raise HTTPException(status_code=500, detail=f"可视化模块导入失败: {import_error}") from import_error
     
     except Exception as e:
         logger.error(f"报告生成失败: {e}")
