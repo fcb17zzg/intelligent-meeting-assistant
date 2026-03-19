@@ -21,6 +21,12 @@ def apply_compatibility_fixes():
         # 修复torchaudio兼容性
         try:
             import torchaudio
+            if not hasattr(torchaudio, 'list_audio_backends'):
+                torchaudio.list_audio_backends = lambda: ['default']
+                print("[兼容性] 修复torchaudio.list_audio_backends")
+            if not hasattr(torchaudio, 'get_audio_backend'):
+                torchaudio.get_audio_backend = lambda: 'default'
+                print("[兼容性] 修复torchaudio.get_audio_backend")
             if not hasattr(torchaudio, 'set_audio_backend'):
                 torchaudio.set_audio_backend = lambda x: True
                 print("[兼容性] 修复torchaudio.set_audio_backend")
