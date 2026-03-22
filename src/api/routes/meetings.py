@@ -728,7 +728,11 @@ async def delete_meeting(meeting_id: int, db: Session = Depends(get_db)):
 # ==================== 会议内容处理 ====================
 
 @router.get("/meetings/{meeting_id}/summary")
-async def get_meeting_summary(meeting_id: int, db: Session = Depends(get_db)):
+async def get_meeting_summary(
+    meeting_id: int,
+    refresh_analysis: bool = False,
+    db: Session = Depends(get_db),
+):
     """
     获取会议摘要
     """
@@ -796,7 +800,9 @@ async def get_meeting_summary(meeting_id: int, db: Session = Depends(get_db)):
         key_topic_details = _fallback_topics_from_text(transcript_text, max_topics=5)
         key_topics = [item["name"] for item in key_topic_details]
 
-    if summary_data_cache is None and transcript_text:
+    # 默认不在每次 GET 时重复触发高开销 LLM 结构化分析。
+    # 仅在显式 refresh_analysis 或当前请求已生成新摘要时才执行。
+    if summary_data_cache is None and transcript_text and refresh_analysis:
         try:
             summary_data_cache = _generate_summary_payload(transcript_text, meeting.duration)
         except Exception as exc:
@@ -807,24 +813,30 @@ async def get_meeting_summary(meeting_id: int, db: Session = Depends(get_db)):
     open_issues = [str(item).strip() for item in (summary_data_cache or {}).get("open_issues", []) if str(item).strip()]
 
     speaker_stats = _build_speaker_stats(segments)
-    action_items = _extract_action_items(transcript_text) if transcript_text else []
-    if not action_items:
-        persisted_tasks = db.execute(
-            select(Task).where(Task.meeting_id == meeting_id).order_by(Task.created_at.desc())
-        ).scalars().all()
-        action_items = [
-            {
-                "id": str(task.id),
-                "description": str(task.description or task.title or "").strip(),
-                "assignee": getattr(task, "assignee_name", None),
-                "due_date": task.due_date.isoformat() if getattr(task, "due_date", None) else None,
-                "priority": str(getattr(task, "priority", "medium")),
-                "status": str(getattr(task, "status", "pending")),
-                "confidence": float(getattr(task, "confidence", 0.7) or 0.7),
-            }
-            for task in persisted_tasks
-            if str(task.description or task.title or "").strip()
-        ][:20]
+    persisted_tasks = db.execute(
+        select(Task).where(Task.meeting_id == meeting_id).order_by(Task.created_at.desc())
+    ).scalars().all()
+    action_items = [
+        {
+            "id": str(task.id),
+            "description": str(task.description or task.title or "").strip(),
+            "assignee": getattr(task, "assignee_name", None),
+            "due_date": task.due_date.isoformat() if getattr(task, "due_date", None) else None,
+            "priority": str(getattr(task, "priority", "medium")),
+            "status": str(getattr(task, "status", "pending")),
+            "confidence": float(getattr(task, "confidence", 0.7) or 0.7),
+        }
+        for task in persisted_tasks
+        if str(task.description or task.title or "").strip()
+    ][:20]
+
+    # 只有在没有已持久化任务时，才回退到从全文实时抽取，避免每次查询重复高开销计算。
+    if not action_items and transcript_text and refresh_analysis:
+        try:
+            action_items = _extract_action_items(transcript_text)
+        except Exception as action_error:
+            logger.warning(f"实时行动项抽取失败，返回空列表: {action_error}")
+            action_items = []
 
     return {
         "meeting_id": meeting_id,

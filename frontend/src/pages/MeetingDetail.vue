@@ -120,7 +120,7 @@
           :loading="summaryLoading"
           :transcription="transcriptionData"
           :meeting-id="meetingId"
-          @refresh="loadSummary"
+          @refresh="loadSummary(true)"
           @update-notes="updateSummaryNotes"
           @update-action-item="upsertActionItemFromSummary"
         />
@@ -352,10 +352,12 @@ const loadMeetingDetail = async () => {
   }
 }
 
-const loadSummary = async () => {
+const loadSummary = async (refreshAnalysis = false) => {
   summaryLoading.value = true
   try {
-    const result = await meetingStore.getSummary(meetingId)
+    const result = await meetingStore.getSummary(meetingId, {
+      refresh_analysis: refreshAnalysis,
+    })
     summary.value = result
   } catch (error) {
     console.log('获取摘要:', error)

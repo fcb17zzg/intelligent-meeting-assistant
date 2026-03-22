@@ -49,8 +49,8 @@ export const meetingAPI = {
   },
 
   // 获取摘要
-  getSummary(meetingId) {
-    return client.get(`/meetings/${meetingId}/summary`)
+  getSummary(meetingId, params = {}) {
+    return client.get(`/meetings/${meetingId}/summary`, { params })
   },
 
   // 获取任务列表

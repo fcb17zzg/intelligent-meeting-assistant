@@ -302,18 +302,25 @@ async def update_task_priority(
 async def get_task_reminders_overview(
     meeting_id: Optional[int] = None,
     assignee_id: Optional[int] = None,
+    limit: int = 100,
     db: Session = Depends(get_db),
 ):
     """
     站内提醒总览：返回即将到期与已逾期任务
     """
-    query = select(Task)
+    safe_limit = max(1, min(limit, 500))
+
+    # 提醒只关注“有截止日期且未完成”的任务，避免扫描大量无效记录。
+    query = select(Task).where(
+        Task.due_date.is_not(None),
+        Task.status != TaskStatus.COMPLETED,
+    )
     if meeting_id:
         query = query.where(Task.meeting_id == meeting_id)
     if assignee_id:
         query = query.where(Task.assignee_id == assignee_id)
 
-    tasks = db.execute(query).scalars().all()
+    tasks = db.execute(query.order_by(Task.due_date.asc()).limit(safe_limit)).scalars().all()
 
     due_soon = []
     overdue = []

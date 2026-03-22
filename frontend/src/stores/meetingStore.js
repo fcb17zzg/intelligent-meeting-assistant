@@ -159,9 +159,9 @@ export const useMeetingStore = defineStore('meeting', () => {
     }
   }
 
-  const getSummary = async (meetingId) => {
+  const getSummary = async (meetingId, params = {}) => {
     try {
-      const response = await meetingAPI.getSummary(meetingId)
+      const response = await meetingAPI.getSummary(meetingId, params)
       return response.data || response
     } catch (err) {
       error.value = err.message || '获取摘要失败'
