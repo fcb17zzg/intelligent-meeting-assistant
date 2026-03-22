@@ -8,6 +8,7 @@
             <h1>🎤 智能会议助手</h1>
           </div>
           <nav class="nav-menu">
+            <RouterLink to="/dashboard" class="nav-item">任务主页</RouterLink>
             <RouterLink to="/meetings" class="nav-item">会议管理</RouterLink>
             <a href="#" class="nav-item">帮助</a>
           </nav>

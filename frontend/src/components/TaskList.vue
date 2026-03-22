@@ -98,11 +98,11 @@
         </div>
 
         <div class="task-meta">
-          <span v-if="task.assignee_name || task.assignee" class="meta-item">
-            👤 {{ task.assignee_name || task.assignee }}
+          <span class="meta-item">
+            👤 {{ task.assignee_name || task.assignee || '待分配' }}
           </span>
-          <span v-if="task.due_date" class="meta-item" :class="getDueDateClass(task.due_date)">
-            📅 {{ formatDate(task.due_date) }}
+          <span class="meta-item" :class="getDueDateClass(task.due_date)">
+            📅 {{ task.due_date ? formatDate(task.due_date) : '待设置' }}
           </span>
           <span v-if="task.meeting_title" class="meta-item meeting">
             📌 {{ task.meeting_title }}
@@ -138,6 +138,7 @@
 
         <el-form-item label="优先级">
           <el-select v-model="editingTask.priority">
+            <el-option label="紧急" value="urgent" />
             <el-option label="低" value="low" />
             <el-option label="中" value="medium" />
             <el-option label="高" value="high" />
@@ -204,7 +205,7 @@ const filteredTasks = computed(() => {
       result.sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
       break
     case 'priority':
-      const priorityMap = { high: 3, medium: 2, low: 1 }
+      const priorityMap = { urgent: 4, high: 3, medium: 2, low: 1 }
       result.sort((a, b) => (priorityMap[b.priority] || 0) - (priorityMap[a.priority] || 0))
       break
     case 'due-date':
@@ -225,7 +226,7 @@ const getProgressColor = (percentage) => {
 }
 
 const getPriorityLabel = (priority) => {
-  const map = { high: '高', medium: '中', low: '低' }
+  const map = { urgent: '紧急', high: '高', medium: '中', low: '低' }
   return map[priority] || priority
 }
 

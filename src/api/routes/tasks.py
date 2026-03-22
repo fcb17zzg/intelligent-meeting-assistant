@@ -12,6 +12,7 @@ from sqlmodel import Session, select
 from database import get_db
 from models import (
     Task,
+    Meeting,
     TaskRead,
     TaskCreate,
     TaskUpdate,
@@ -54,6 +55,28 @@ def _task_reminder_flags(task: Task) -> dict:
     }
 
 
+def _priority_rank(priority: Optional[TaskPriority]) -> int:
+    order = {
+        TaskPriority.URGENT: 0,
+        TaskPriority.HIGH: 1,
+        TaskPriority.MEDIUM: 2,
+        TaskPriority.LOW: 3,
+    }
+    return order.get(priority or TaskPriority.MEDIUM, 2)
+
+
+def _urgent_sort_key(task: Task):
+    due_date = getattr(task, "due_date", None)
+    due_ts = due_date.timestamp() if due_date else float("inf")
+    created_ts = getattr(task, "created_at", None)
+    created_ts = created_ts.timestamp() if created_ts else 0.0
+    return (
+        _priority_rank(getattr(task, "priority", TaskPriority.MEDIUM)),
+        due_ts,
+        -created_ts,
+    )
+
+
 # ==================== 任务CRUD操作 ====================
 
 @router.get("/tasks", response_model=list[TaskRead])
@@ -80,6 +103,50 @@ async def list_tasks(
         query = query.where(Task.assignee_id == assignee_id)
 
     return db.execute(query.offset(skip).limit(limit)).scalars().all()
+
+
+@router.get("/tasks/urgent")
+async def list_urgent_tasks(
+    limit: int = 10,
+    meeting_id: Optional[int] = None,
+    assignee_id: Optional[int] = None,
+    include_completed: bool = False,
+    db: Session = Depends(get_db),
+):
+    """
+    获取最近最紧急任务：先按优先级，再按截止日期最近排序。
+    """
+    safe_limit = max(1, min(limit, 100))
+
+    query = select(Task)
+    if meeting_id:
+        query = query.where(Task.meeting_id == meeting_id)
+    if assignee_id:
+        query = query.where(Task.assignee_id == assignee_id)
+
+    tasks = db.execute(query).scalars().all()
+    if not include_completed:
+        tasks = [task for task in tasks if task.status != TaskStatus.COMPLETED]
+
+    tasks = sorted(tasks, key=_urgent_sort_key)[:safe_limit]
+
+    meeting_ids = {task.meeting_id for task in tasks if getattr(task, "meeting_id", None)}
+    meetings = db.execute(select(Meeting).where(Meeting.id.in_(meeting_ids))).scalars().all() if meeting_ids else []
+    meeting_title_map = {meeting.id: meeting.title for meeting in meetings}
+
+    items = []
+    for task in tasks:
+        flags = _task_reminder_flags(task)
+        payload = TaskRead.model_validate(task).model_dump(mode="json")
+        payload.update(flags)
+        payload["meeting_title"] = meeting_title_map.get(task.meeting_id)
+        items.append(payload)
+
+    return {
+        "count": len(items),
+        "items": items,
+        "generated_at": _now_utc().isoformat(),
+    }
 
 
 @router.get("/tasks/{task_id}", response_model=TaskDetail)

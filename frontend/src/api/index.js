@@ -95,6 +95,11 @@ export const taskAPI = {
   getReminders(params = {}) {
     return client.get('/tasks/reminders/overview', { params })
   },
+
+  // 获取最近最紧急任务
+  getUrgentTasks(params = {}) {
+    return client.get('/tasks/urgent', { params })
+  },
 }
 
 // ==================== 用户相关API ====================

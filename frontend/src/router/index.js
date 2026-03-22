@@ -3,6 +3,7 @@ import { useAuthStore } from '@/stores/authStore'
 import MeetingList from '@/pages/MeetingList.vue'
 import MeetingDetail from '@/pages/MeetingDetail.vue'
 import CreateMeeting from '@/pages/CreateMeeting.vue'
+import TaskDashboard from '@/pages/TaskDashboard.vue'
 import Login from '@/pages/Login.vue'
 import Register from '@/pages/Register.vue'
 
@@ -21,7 +22,13 @@ const routes = [
   },
   {
     path: '/',
-    redirect: '/meetings',
+    redirect: '/dashboard',
+  },
+  {
+    path: '/dashboard',
+    name: 'TaskDashboard',
+    component: TaskDashboard,
+    meta: { requiresAuth: true },
   },
   {
     path: '/meetings',
@@ -74,7 +81,7 @@ router.beforeEach(async (to, from, next) => {
     })
   } else if (!requiresAuth && isAuthenticated && (to.name === 'Login' || to.name === 'Register')) {
     // 已登录且试图访问登录/注册页面，重定向到首页
-    next({ path: '/meetings' })
+    next({ path: '/dashboard' })
   } else {
     next()
   }
