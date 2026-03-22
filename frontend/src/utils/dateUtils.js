@@ -17,11 +17,12 @@ export function formatDate(dateString) {
 }
 
 export function formatDuration(seconds) {
-  if (!seconds) return '0秒'
+  const totalSeconds = Math.max(0, Math.round(Number(seconds) || 0))
+  if (!totalSeconds) return '0秒'
 
-  const hours = Math.floor(seconds / 3600)
-  const minutes = Math.floor((seconds % 3600) / 60)
-  const secs = seconds % 60
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const secs = totalSeconds % 60
 
   const parts = []
   if (hours > 0) parts.push(`${hours}小时`)

@@ -124,6 +124,7 @@
           @update-notes="updateSummaryNotes"
           @update-action-item="upsertActionItemFromSummary"
           @add-action-items="openBatchAddTaskDialog"
+          @delete-action-items="deleteSelectedActionItems"
         />
       </el-card>
 
@@ -706,6 +707,68 @@ const confirmBatchAddTasks = async () => {
     ElMessage.error('批量添加任务失败')
   } finally {
     batchAdding.value = false
+  }
+}
+
+const deleteSelectedActionItems = async (items) => {
+  const selectedItems = Array.isArray(items) ? items : []
+  if (!selectedItems.length) {
+    ElMessage.warning('请先选择行动项')
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `确定删除选中的 ${selectedItems.length} 个行动项吗？`,
+      '批量删除确认',
+      {
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    )
+  } catch (_) {
+    return
+  }
+
+  try {
+    const selectedIdSet = new Set(
+      selectedItems
+        .map((item) => Number(item?.id))
+        .filter((id) => Number.isFinite(id))
+    )
+
+    let deletedCount = 0
+    for (const id of selectedIdSet) {
+      const task = tasks.value.find((taskItem) => Number(taskItem.id) === id)
+      if (!task) continue
+      await taskAPI.deleteTask(id)
+      deletedCount += 1
+    }
+
+    if (summary.value && Array.isArray(summary.value.action_items)) {
+      const descriptionSet = new Set(
+        selectedItems
+          .map((item) => String(item?.description || item?.text || '').trim())
+          .filter((text) => text)
+      )
+      summary.value.action_items = summary.value.action_items.filter((item) => {
+        const numericId = Number(item?.id)
+        const desc = String(item?.description || item?.text || '').trim()
+        if (Number.isFinite(numericId) && selectedIdSet.has(numericId)) return false
+        if (desc && descriptionSet.has(desc)) return false
+        return true
+      })
+    }
+
+    await loadTasks()
+    ElMessage.success(
+      deletedCount > 0
+        ? `已删除 ${deletedCount} 个任务，并从摘要移除选中行动项`
+        : '已从当前摘要移除选中行动项'
+    )
+  } catch (error) {
+    ElMessage.error('批量删除行动项失败')
   }
 }
 

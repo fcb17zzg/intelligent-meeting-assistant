@@ -90,6 +90,14 @@
             >
               加入任务系统（{{ selectedActionItemKeys.length }}）
             </el-button>
+            <el-button
+              type="danger"
+              size="small"
+              :disabled="selectedActionItemKeys.length === 0"
+              @click="deleteSelectedActionItems"
+            >
+              批量删除（{{ selectedActionItemKeys.length }}）
+            </el-button>
           </div>
         </div>
         <div class="action-items-list">
@@ -228,7 +236,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['update-notes', 'refresh', 'update-action-item', 'add-action-items'])
+const emit = defineEmits(['update-notes', 'refresh', 'update-action-item', 'add-action-items', 'delete-action-items'])
 
 const editingNotes = ref(false)
 const localLoading = ref(false)
@@ -605,6 +613,15 @@ const addSelectedActionItemsToTasks = () => {
     return
   }
   emit('add-action-items', selectedItems)
+}
+
+const deleteSelectedActionItems = () => {
+  const selectedItems = getSelectedActionItems()
+  if (!selectedItems.length) {
+    ElMessage.warning('请先选择至少一个行动项')
+    return
+  }
+  emit('delete-action-items', selectedItems)
 }
 
 const saveActionItemEdit = () => {
