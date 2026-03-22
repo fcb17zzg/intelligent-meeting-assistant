@@ -830,36 +830,12 @@ async def get_meeting_summary(
         if str(task.description or task.title or "").strip()
     ][:20]
 
-    # 若数据库里暂无行动项，自动执行一次抽取并持久化，避免前端显示为空。
-    # 该步骤只在“空库”时触发，成功后后续请求将直接读取数据库，兼顾可见性与性能。
-    if not action_items and transcript_text:
+    # 只有在没有已持久化任务时，才回退到从全文实时抽取，避免每次查询重复高开销计算。
+    if not action_items and transcript_text and refresh_analysis:
         try:
-            extracted_items = _extract_action_items(transcript_text)
-            if extracted_items:
-                _persist_action_items(db, meeting_id, extracted_items)
-                db.commit()
-
-                refreshed_tasks = db.execute(
-                    select(Task).where(Task.meeting_id == meeting_id).order_by(Task.created_at.desc())
-                ).scalars().all()
-                action_items = [
-                    {
-                        "id": str(task.id),
-                        "description": str(task.description or task.title or "").strip(),
-                        "assignee": getattr(task, "assignee_name", None),
-                        "due_date": task.due_date.isoformat() if getattr(task, "due_date", None) else None,
-                        "priority": str(getattr(task, "priority", "medium")),
-                        "status": str(getattr(task, "status", "pending")),
-                        "confidence": float(getattr(task, "confidence", 0.7) or 0.7),
-                    }
-                    for task in refreshed_tasks
-                    if str(task.description or task.title or "").strip()
-                ][:20]
-            else:
-                action_items = []
+            action_items = _extract_action_items(transcript_text)
         except Exception as action_error:
-            db.rollback()
-            logger.warning(f"行动项自动抽取失败，返回空列表: {action_error}")
+            logger.warning(f"实时行动项抽取失败，返回空列表: {action_error}")
             action_items = []
 
     return {
