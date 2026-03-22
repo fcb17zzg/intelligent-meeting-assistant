@@ -122,6 +122,7 @@
           :meeting-id="meetingId"
           @refresh="loadSummary(true)"
           @update-notes="updateSummaryNotes"
+          @update-summary="updateSummaryContent"
           @update-action-item="upsertActionItemFromSummary"
           @add-action-items="openBatchAddTaskDialog"
           @delete-action-items="deleteSelectedActionItems"
@@ -605,6 +606,21 @@ const deleteTask = async (taskId) => {
 
 const updateSummaryNotes = (notes) => {
   ElMessage.success('笔记已保存')
+}
+
+const updateSummaryContent = async (payload) => {
+  const summaryText = String(payload?.summary_text || payload?.summary || '').trim()
+  await meetingStore.updateMeeting(meetingId, {
+    summary: summaryText,
+  })
+
+  if (summary.value) {
+    summary.value = {
+      ...summary.value,
+      summary_text: summaryText,
+      summary: summaryText,
+    }
+  }
 }
 
 const upsertActionItemFromSummary = async (item) => {

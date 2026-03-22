@@ -22,10 +22,22 @@
       </div>
 
       <!-- 主要内容摘要 -->
-      <div v-if="displayedSummary.summary_text" class="summary-section">
+      <div class="summary-section">
         <h4>📝 会议纪要</h4>
-        <div class="summary-text">
-          {{ displayedSummary.summary_text }}
+        <div v-if="!editingSummary" class="summary-text">
+          {{ displayedSummary.summary_text || '暂无会议纪要' }}
+        </div>
+        <div v-else class="summary-edit">
+          <el-input
+            v-model="editableSummaryText"
+            type="textarea"
+            :rows="6"
+            placeholder="请输入会议纪要..."
+          />
+          <div class="summary-edit-actions">
+            <el-button @click="cancelEditSummary">取消</el-button>
+            <el-button type="primary" @click="saveSummaryText">保存摘要</el-button>
+          </div>
         </div>
       </div>
 
@@ -151,6 +163,9 @@
         <el-button @click="refreshSummary">
           🔄 刷新
         </el-button>
+        <el-button v-if="!editingSummary" @click="startEditSummary">
+          📝 编辑摘要
+        </el-button>
         <el-button v-if="!editingNotes" @click="startEditNotes">
           ✏️ 编辑笔记
         </el-button>
@@ -236,12 +251,14 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['update-notes', 'refresh', 'update-action-item', 'add-action-items', 'delete-action-items'])
+const emit = defineEmits(['update-notes', 'refresh', 'update-action-item', 'add-action-items', 'delete-action-items', 'update-summary'])
 
 const editingNotes = ref(false)
+const editingSummary = ref(false)
 const localLoading = ref(false)
 const localSummary = ref(null)
 const editableNotes = ref('')
+const editableSummaryText = ref('')
 const actionItemDialogVisible = ref(false)
 const selectedActionItemKeys = ref([])
 const editingActionItem = ref({
@@ -520,6 +537,34 @@ const ensureLocalSummary = () => {
 const startEditNotes = () => {
   editableNotes.value = displayedSummary.value?.notes || ''
   editingNotes.value = true
+}
+
+const startEditSummary = () => {
+  editableSummaryText.value = displayedSummary.value?.summary_text || displayedSummary.value?.summary || ''
+  editingSummary.value = true
+}
+
+const cancelEditSummary = () => {
+  editableSummaryText.value = displayedSummary.value?.summary_text || displayedSummary.value?.summary || ''
+  editingSummary.value = false
+}
+
+const saveSummaryText = async () => {
+  const summaryText = String(editableSummaryText.value || '').trim()
+  ensureLocalSummary()
+  localSummary.value.summary_text = summaryText
+  localSummary.value.summary = summaryText
+
+  try {
+    await emit('update-summary', {
+      summary_text: summaryText,
+      summary: summaryText,
+    })
+    ElMessage.success('会议摘要已保存')
+    editingSummary.value = false
+  } catch (error) {
+    ElMessage.error('保存摘要失败')
+  }
 }
 
 const cancelEditNotes = () => {
@@ -838,6 +883,17 @@ const saveSummaryToBackend = async (summary) => {
 
   .notes-edit {
     width: 100%;
+  }
+
+  .summary-edit {
+    width: 100%;
+
+    .summary-edit-actions {
+      margin-top: 12px;
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
   }
 }
 </style>
