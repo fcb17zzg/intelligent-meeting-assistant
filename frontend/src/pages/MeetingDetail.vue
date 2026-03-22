@@ -122,6 +122,7 @@
           :meeting-id="meetingId"
           @refresh="loadSummary"
           @update-notes="updateSummaryNotes"
+          @update-action-item="upsertActionItemFromSummary"
         />
       </el-card>
 
@@ -488,6 +489,61 @@ const deleteTask = async (taskId) => {
 
 const updateSummaryNotes = (notes) => {
   ElMessage.success('笔记已保存')
+}
+
+const upsertActionItemFromSummary = async (item) => {
+  try {
+    const description = String(item?.description || item?.text || '').trim()
+    if (!description) {
+      ElMessage.warning('行动项描述不能为空')
+      return
+    }
+
+    const dueDateValue = item?.due_date ? String(item.due_date) : null
+    const assigneeName = item?.assignee ? String(item.assignee).trim() : null
+
+    // 先更新页面上的摘要行动项显示，避免用户感知“保存后没变化”。
+    if (summary.value && Array.isArray(summary.value.action_items)) {
+      const idx = summary.value.action_items.findIndex((x) => String(x?.id) === String(item?.id))
+      if (idx >= 0) {
+        summary.value.action_items[idx] = {
+          ...summary.value.action_items[idx],
+          description,
+          text: description,
+          assignee: assigneeName,
+          due_date: dueDateValue,
+        }
+      }
+    }
+
+    const numericId = Number(item?.id)
+    const existingTask = Number.isFinite(numericId)
+      ? tasks.value.find((t) => Number(t.id) === numericId)
+      : null
+
+    if (existingTask) {
+      await taskAPI.updateTask(existingTask.id, {
+        title: description.slice(0, 80),
+        description,
+        assignee_name: assigneeName,
+        due_date: dueDateValue,
+      })
+    } else {
+      await taskAPI.createTask({
+        meeting_id: Number(meetingId),
+        title: description.slice(0, 80),
+        description,
+        assignee_name: assigneeName,
+        due_date: dueDateValue,
+        priority: item?.priority || 'medium',
+      })
+    }
+
+    ElMessage.success('行动项已保存，可在任务列表继续编辑')
+    await loadTasks()
+  } catch (error) {
+    ElMessage.error('保存行动项失败')
+  }
 }
 
 const back = () => {

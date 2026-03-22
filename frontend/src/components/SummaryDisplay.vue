@@ -82,8 +82,11 @@
             <el-checkbox v-model="item.completed" @change="updateActionItem(item)">
               {{ item.text || item.description }}
             </el-checkbox>
-            <span v-if="item.assignee" class="assignee">(负责人: {{ item.assignee }})</span>
-            <span v-if="item.due_date" class="due-date">期限: {{ formatDate(item.due_date) }}</span>
+            <span class="assignee">负责人: {{ item.assignee || '' }}</span>
+            <span class="due-date">期限: {{ item.due_date ? formatDate(item.due_date) : '' }}</span>
+            <el-button text type="primary" size="small" @click="openActionItemEditor(item)">
+              编辑
+            </el-button>
           </div>
         </div>
       </div>
@@ -148,6 +151,32 @@
 
     <!-- 空状态 -->
     <el-empty v-else description="暂无摘要数据" />
+
+    <el-dialog v-model="actionItemDialogVisible" title="编辑行动项" width="520px">
+      <el-form :model="editingActionItem" label-width="90px">
+        <el-form-item label="任务描述">
+          <el-input v-model="editingActionItem.description" type="textarea" rows="3" />
+        </el-form-item>
+        <el-form-item label="负责人">
+          <el-input v-model="editingActionItem.assignee" placeholder="可留空，后续补充" clearable />
+        </el-form-item>
+        <el-form-item label="截止日期">
+          <el-date-picker
+            v-model="editingActionItem.due_date"
+            type="datetime"
+            placeholder="可留空，后续补充"
+            value-format="YYYY-MM-DDTHH:mm:ss"
+            clearable
+            style="width: 100%"
+          />
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="actionItemDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveActionItemEdit">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -177,12 +206,19 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['update-notes', 'refresh'])
+const emit = defineEmits(['update-notes', 'refresh', 'update-action-item'])
 
 const editingNotes = ref(false)
 const localLoading = ref(false)
 const localSummary = ref(null)
 const editableNotes = ref('')
+const actionItemDialogVisible = ref(false)
+const editingActionItem = ref({
+  id: null,
+  description: '',
+  assignee: '',
+  due_date: null,
+})
 
 const displayedSummary = computed(() => {
   const remote = props.summary || null
@@ -474,6 +510,33 @@ const refreshSummary = () => {
 
 const updateActionItem = (item) => {
   emit('update-action-item', item)
+}
+
+const openActionItemEditor = (item) => {
+  editingActionItem.value = {
+    id: item?.id || null,
+    description: String(item?.description || item?.text || '').trim(),
+    assignee: item?.assignee || '',
+    due_date: item?.due_date || null,
+  }
+  actionItemDialogVisible.value = true
+}
+
+const saveActionItemEdit = () => {
+  const payload = {
+    ...editingActionItem.value,
+    description: String(editingActionItem.value?.description || '').trim(),
+    assignee: String(editingActionItem.value?.assignee || '').trim() || null,
+    due_date: editingActionItem.value?.due_date || null,
+  }
+
+  if (!payload.description) {
+    ElMessage.warning('任务描述不能为空')
+    return
+  }
+
+  emit('update-action-item', payload)
+  actionItemDialogVisible.value = false
 }
 
 /**
