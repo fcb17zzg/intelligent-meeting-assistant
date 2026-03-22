@@ -372,6 +372,7 @@ def _generate_summary_payload(transcript_text: str, duration: Optional[float]) -
 def _extract_action_items(transcript_text: str) -> list[dict]:
     llm_config = _build_llm_config()
     extraction_mode = str(os.getenv("MEETING_TASK_EXTRACTION_MODE") or "llm_first").lower()
+    model_first = bool(llm_config) and extraction_mode == "llm_first"
     extractor = TaskExtractor(
         {
             "min_task_confidence": 0.65,
@@ -448,16 +449,20 @@ def _extract_action_items(transcript_text: str) -> list[dict]:
             ):
                 continue
 
-        if confidence < 0.75:
+        if confidence < (0.65 if model_first else 0.75):
             continue
         if len(description) < 8 or len(description) > 80:
             continue
         if any(noise in description for noise in conversational_noise):
             continue
         if not any(v in description for v in verb_hint):
-            continue
+            if not model_first:
+                continue
+            # 模型优先模式放宽动词约束，避免漏掉“确认/评估/对齐”等有效任务。
+            if not any(marker in description for marker in task_intent_markers):
+                continue
 
-        if "负责" in description:
+        if "负责" in description and not model_first:
             # 仅保留“某人负责某任务”的结构化短句，剔除口语化叙述
             strict_match = re.match(r"^([A-Za-z\u4e00-\u9fff]{2,8})负责([\u4e00-\u9fffA-Za-z0-9、，,\-]{2,40})$", description)
             if not strict_match:
@@ -803,6 +808,23 @@ async def get_meeting_summary(meeting_id: int, db: Session = Depends(get_db)):
 
     speaker_stats = _build_speaker_stats(segments)
     action_items = _extract_action_items(transcript_text) if transcript_text else []
+    if not action_items:
+        persisted_tasks = db.execute(
+            select(Task).where(Task.meeting_id == meeting_id).order_by(Task.created_at.desc())
+        ).scalars().all()
+        action_items = [
+            {
+                "id": str(task.id),
+                "description": str(task.description or task.title or "").strip(),
+                "assignee": getattr(task, "assignee_name", None),
+                "due_date": task.due_date.isoformat() if getattr(task, "due_date", None) else None,
+                "priority": str(getattr(task, "priority", "medium")),
+                "status": str(getattr(task, "status", "pending")),
+                "confidence": float(getattr(task, "confidence", 0.7) or 0.7),
+            }
+            for task in persisted_tasks
+            if str(task.description or task.title or "").strip()
+        ][:20]
 
     return {
         "meeting_id": meeting_id,

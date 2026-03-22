@@ -234,6 +234,19 @@ watch(
   () => props.transcription,
   async (newVal) => {
     if (!newVal) return
+
+    const remoteSummary = props.summary || null
+    const hasStableRemoteSummary = !!(
+      remoteSummary &&
+      (
+        (remoteSummary.summary_text && String(remoteSummary.summary_text).trim()) ||
+        (remoteSummary.summary && String(remoteSummary.summary).trim()) ||
+        (Array.isArray(remoteSummary.action_items) && remoteSummary.action_items.length > 0) ||
+        (Array.isArray(remoteSummary.key_topics) && remoteSummary.key_topics.length > 0)
+      )
+    )
+    if (hasStableRemoteSummary) return
+
     try {
       localLoading.value = true
 
@@ -311,8 +324,8 @@ watch(
         // ignore
       }
 
-      // 保存摘要到后端
-      if (props.meetingId && localSummary.value.summary_text) {
+      // 仅在后端暂无摘要时，尝试写回本地生成摘要，避免覆盖服务端结果。
+      if (props.meetingId && localSummary.value.summary_text && !hasStableRemoteSummary) {
         try {
           await saveSummaryToBackend(localSummary.value)
         } catch (saveErr) {
@@ -476,7 +489,7 @@ const saveSummaryToBackend = async (summary) => {
     const updateData = {
       summary: summary.summary_text || summary.summary || '',
       key_topics: JSON.stringify(summary.key_topics || []),
-      summary_type: 'abstractive',
+      summary_type: summary.summary_type || 'extractive',
     }
 
     await meetingAPI.updateMeeting(props.meetingId, updateData)

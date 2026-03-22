@@ -203,6 +203,17 @@ JSON 字段定义：
             if re.search(pattern, summary, flags=re.IGNORECASE):
                 return False
 
+        # 若结构化字段充足，允许词面重叠较低，避免语义改写导致误降级。
+        key_topics = summary_data.get("key_topics", []) if isinstance(summary_data, dict) else []
+        decisions = summary_data.get("decisions", []) if isinstance(summary_data, dict) else []
+        open_issues = summary_data.get("open_issues", []) if isinstance(summary_data, dict) else []
+        if (
+            (isinstance(key_topics, list) and len(key_topics) >= 2)
+            or (isinstance(decisions, list) and len(decisions) >= 1)
+            or (isinstance(open_issues, list) and len(open_issues) >= 1)
+        ):
+            return True
+
         source_keywords = {
             token.lower()
             for token in re.findall(r"[A-Za-z]{3,}|[\u4e00-\u9fff]{2,}", source_text or "")
@@ -220,7 +231,9 @@ JSON 字段定义：
                 source_text_normalized = str(source_text or "").lower()
                 partial_hits = [token for token in summary_keywords if token and token in source_text_normalized]
                 if not partial_hits:
-                    return False
+                    # 避免过严：只在严重偏离时降级。
+                    if len(summary_keywords) >= 8 and len(source_keywords) >= 20:
+                        return False
 
         return True
     
