@@ -4,9 +4,14 @@ import client from './client'
 export const meetingAPI = {
   // 获取会议列表
   getMeetings(params = {}) {
+    const normalizedParams = {
+      skip: 0,
+      limit: 1000,
+      ...params,
+    }
     return client.get('/meetings', {
       params: {
-        ...params,
+        ...normalizedParams,
         _t: Date.now(),
       },
     })
