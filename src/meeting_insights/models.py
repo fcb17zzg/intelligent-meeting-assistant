@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from enum import Enum
+import uuid
 
 # 添加 LLMProvider 枚举
 class LLMProvider(str, Enum):
@@ -31,7 +32,7 @@ class Status(str, Enum):
 
 class ActionItem(BaseModel):
     """行动项模型（谁负责、做什么、何时完成）"""
-    id: str = Field(default_factory=lambda: f"task_{datetime.now().timestamp()}")
+    id: str = Field(default_factory=lambda: f"task_{uuid.uuid4().hex}")
     description: str = Field(..., description="任务描述")
     assignee: Optional[str] = Field(None, description="负责人标签，如 SPEAKER_00")
     assignee_name: Optional[str] = Field(None, description="识别的真实姓名")

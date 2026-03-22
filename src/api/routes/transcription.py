@@ -323,6 +323,7 @@ async def extract_actions_from_transcription(
                 "min_task_confidence": min_confidence,
                 "enable_date_parsing": True,
                 "use_llm_for_tasks": bool(llm_config),
+                "task_extraction_mode": "llm_first",
                 "llm": llm_config,
             }
         )

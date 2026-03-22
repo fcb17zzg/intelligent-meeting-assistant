@@ -371,11 +371,13 @@ def _generate_summary_payload(transcript_text: str, duration: Optional[float]) -
 
 def _extract_action_items(transcript_text: str) -> list[dict]:
     llm_config = _build_llm_config()
+    extraction_mode = str(os.getenv("MEETING_TASK_EXTRACTION_MODE") or "llm_first").lower()
     extractor = TaskExtractor(
         {
             "min_task_confidence": 0.65,
             "enable_date_parsing": True,
             "use_llm_for_tasks": bool(llm_config),
+            "task_extraction_mode": extraction_mode,
             "llm": llm_config or {},
         }
     )

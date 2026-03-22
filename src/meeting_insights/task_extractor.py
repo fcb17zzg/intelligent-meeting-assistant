@@ -124,11 +124,19 @@ class TaskExtractor:
     def extract_from_text(self, text: str, speaker_segments=None) -> List[ActionItem]:
         """从文本中提取任务项"""
         tasks = []
+        extraction_mode = str(self.config.get('task_extraction_mode', 'hybrid') or 'hybrid').lower()
 
         # 方法1：模型提取（优先）
         if self.config.get('use_llm_for_tasks', False):
             llm_tasks = self._extract_by_llm(text)
             tasks.extend(llm_tasks)
+
+            if llm_tasks and extraction_mode in {'llm_first', 'llm_only'}:
+                tasks = [t for t in tasks if t.confidence >= self.min_confidence]
+                return self._deduplicate_tasks(tasks)
+
+            if extraction_mode == 'llm_only':
+                return []
 
         # 方法2：规则匹配兜底
         rule_based_tasks = self._extract_by_rules(text, speaker_segments)
@@ -147,11 +155,11 @@ class TaskExtractor:
         # 改进的正则表达式模式
         patterns = [
             # 模式1: 某人负责某事
-            r'^(?:请|由|让)?\s*([\u4e00-\u9fa5]{2,4})(?:同学|老师|经理|总)?[，,\s]*(?:负责|跟进|处理|完成|做|解决|优化|开发|推进|落实|编写|整理)\s*([^，。；！？\n]{2,50})(?:[，,].*)?$',
+            r'^(?:请|由|让)?\s*([\u4e00-\u9fa5]{2,4})(?:同学|老师|经理|总)?(?=[，,\s]*(?:负责|跟进|处理|完成|做|解决|优化|开发|推进|落实|编写|整理))[，,\s]*(?:负责|跟进|处理|完成|做|解决|优化|开发|推进|落实|编写|整理)\s*([^，。；！？\n]{2,50})(?:[，,].*)?$',
             # 模式2: 需要在时间前完成某事
             r'^(?:[\u4e00-\u9fa5A-Za-z]{0,8})?(?:需要|要|必须|请)\s*([^，。；！？\n]{2,50}?)(?:在|于|截止)?\s*([\d年月日周一二三四五六天]+|下周一|本周[一二三四五六日天]|月底|月末|周[一二三四五六日天]|下周[一二三四五六日天]|今天|明天|后天)[\s]*(?:前|之前|完成|提交|准备|上线).*$',
             # 模式3: 任务指派
-            r'^([\u4e00-\u9fa5]{2,4})[，,\s]*(?:你|您)[\s]*(?:负责|跟进|处理|完成|推进|落实)\s*([^，。；！？\n]{2,50})(?:[，,].*)?$',
+            r'^([\u4e00-\u9fa5]{2,4})(?=[，,\s]*(?:你|您)[\s]*(?:负责|跟进|处理|完成|推进|落实))[，,\s]*(?:你|您)[\s]*(?:负责|跟进|处理|完成|推进|落实)\s*([^，。；！？\n]{2,50})(?:[，,].*)?$',
             # 模式4: 明确的任务描述
             r'^(?:任务|todo|待办)[：:]\s*([^，。；！？\n]{2,50})$',
             # 模式5: 截止日期在前
