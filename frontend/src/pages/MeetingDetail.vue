@@ -111,12 +111,12 @@
       </el-card>
 
       <!-- 摘要展示 -->
-      <el-card v-if="summary" class="section-card" shadow="hover">
+      <el-card class="section-card" shadow="hover">
         <template #header>
           <span>📄 会议摘要</span>
         </template>
         <SummaryDisplay
-          :summary="summary"
+          :summary="displaySummary"
           :loading="summaryLoading"
           :transcription="transcriptionData"
           :meeting-id="meetingId"
@@ -245,6 +245,47 @@ const reminderOverview = ref({
   overdue: [],
 })
 
+const parseKeyTopics = (raw) => {
+  if (!raw) return []
+  if (Array.isArray(raw)) return raw
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw)
+      return Array.isArray(parsed) ? parsed : []
+    } catch (_) {
+      return []
+    }
+  }
+  return []
+}
+
+const buildSummaryFallback = (meetingData) => {
+  if (!meetingData) return null
+  const summaryText = String(meetingData.summary || '').trim()
+  const topics = parseKeyTopics(meetingData.key_topics)
+  if (!summaryText && topics.length === 0) return null
+  return {
+    meeting_id: meetingData.id,
+    title: meetingData.title || '会议摘要',
+    summary: summaryText,
+    summary_text: summaryText,
+    summary_type: meetingData.summary_type || 'extractive',
+    key_topics: topics,
+    decisions: [],
+    open_issues: [],
+    action_items: [],
+    speaker_stats: {},
+    duration: meetingData.duration,
+    created_at: meetingData.created_at,
+    notes: '',
+  }
+}
+
+const displaySummary = computed(() => {
+  if (summary.value) return summary.value
+  return buildSummaryFallback(meetingStore.currentMeeting)
+})
+
 const meetingId = route.params.id
 const audioFileName = computed(() => {
   const fullPath = String(meeting.value?.audio_path || '').trim()
@@ -346,6 +387,9 @@ const loadMeetingDetail = async () => {
         ...meetingStore.currentMeeting,
         status: normalizeMeetingStatus(meetingStore.currentMeeting.status),
       }
+      if (!summary.value) {
+        summary.value = buildSummaryFallback(meetingStore.currentMeeting)
+      }
     }
   } catch (error) {
     ElMessage.error('加载会议详情失败')
@@ -361,6 +405,7 @@ const loadSummary = async (refreshAnalysis = false) => {
     summary.value = result
   } catch (error) {
     console.log('获取摘要:', error)
+    summary.value = summary.value || buildSummaryFallback(meetingStore.currentMeeting)
   } finally {
     summaryLoading.value = false
   }
