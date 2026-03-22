@@ -370,7 +370,15 @@ def _generate_summary_payload(transcript_text: str, duration: Optional[float]) -
 
 
 def _extract_action_items(transcript_text: str) -> list[dict]:
-    extractor = TaskExtractor({"min_task_confidence": 0.55, "enable_date_parsing": True})
+    llm_config = _build_llm_config()
+    extractor = TaskExtractor(
+        {
+            "min_task_confidence": 0.65,
+            "enable_date_parsing": True,
+            "use_llm_for_tasks": bool(llm_config),
+            "llm": llm_config or {},
+        }
+    )
     actions = extractor.extract_from_text(transcript_text)
     raw_items = [
         {
@@ -390,12 +398,32 @@ def _extract_action_items(transcript_text: str) -> list[dict]:
         "we", "you", "they", "team", "company",
     }
     assignee_noise_markers = ("如果", "然后", "现在", "可以", "怎么", "比如", "所谓", "对啊", "有些", "们是")
+    assignee_function_words = (
+        "因为", "没有", "必须", "其实", "还是", "有没有", "虽然", "就是", "然后", "现在", "这个", "那个", "公司",
+    )
     verb_hint = ("负责", "完成", "提交", "跟进", "处理", "优化", "安排", "准备", "解决", "推进", "落实")
     task_intent_markers = ("请", "需要", "安排", "尽快", "截止", "本周", "下周", "今天", "明天", "确认", "同步")
     conversational_noise = (
         "的时候", "的话", "比如", "像", "怎么", "可能", "不是很好", "比较难", "也不好", "无论什么",
         "开始负责房子", "没有给到负责", "你自己去负责", "合一些去负责", "部分人来负责", "也比较难负责", "景也不好负责",
     )
+
+    due_date_pattern = re.compile(
+        r"(本周[一二三四五六日天]|下周[一二三四五六日天]|周[一二三四五六日天]|今天|明天|后天|月底|月末|\d{1,2}月\d{1,2}日|\d{4}[-/]\d{1,2}[-/]\d{1,2})"
+    )
+    due_context_pattern = re.compile(r"(截止|截至|之前|前完成|前提交|deadline)")
+    due_hints: list[str] = []
+    for due_match in due_date_pattern.finditer(transcript_text or ""):
+        start = max(0, due_match.start() - 8)
+        end = min(len(transcript_text or ""), due_match.end() + 8)
+        snippet = (transcript_text or "")[start:end]
+        if not due_context_pattern.search(snippet):
+            continue
+        parsed_due = extractor._parse_date(due_match.group(1))
+        if parsed_due:
+            iso_due = parsed_due.isoformat()
+            if iso_due not in due_hints:
+                due_hints.append(iso_due)
 
     filtered: list[dict] = []
     dedup_keys: set[str] = set()
@@ -413,6 +441,7 @@ def _extract_action_items(transcript_text: str) -> list[dict]:
             if (
                 owner_in_desc in assignee_blacklist
                 or any(marker in owner_in_desc for marker in assignee_noise_markers)
+                or any(marker in owner_in_desc for marker in assignee_function_words)
                 or not re.fullmatch(r"[A-Za-z\u4e00-\u9fff]{2,8}", owner_in_desc)
             ):
                 continue
@@ -450,8 +479,12 @@ def _extract_action_items(transcript_text: str) -> list[dict]:
                 or assignee in assignee_blacklist
                 or not re.fullmatch(r"[A-Za-z\u4e00-\u9fff]{2,8}", assignee)
                 or any(marker in assignee for marker in assignee_noise_markers)
+                or any(marker in assignee for marker in assignee_function_words)
             ):
                 assignee = ""
+
+        if not due_date and len(due_hints) == 1 and ("负责" in description or any(marker in description for marker in task_intent_markers)):
+            due_date = due_hints[0]
 
         actionable_signal = bool(due_date) or bool(assignee) or any(marker in description for marker in task_intent_markers)
         if not actionable_signal:
@@ -470,6 +503,7 @@ def _extract_action_items(transcript_text: str) -> list[dict]:
 
         item["description"] = description
         item["assignee"] = assignee or None
+        item["due_date"] = due_date
         filtered.append(item)
 
     return filtered[:12]

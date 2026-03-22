@@ -269,6 +269,52 @@ class TestTaskExtractor:
             assert tasks[0].confidence >= 0.8
             assert tasks[0].description == "高置信度任务"
 
+    def test_reject_noisy_assignee_phrases(self, extractor):
+        """应过滤 ASR 噪声导致的伪负责人。"""
+        noisy_text = """
+        也是因为负责房子这个事情。没有给你负责什么房屋。
+        李明负责招聘方案整理。
+        """
+        tasks = extractor.extract_from_text(noisy_text)
+        assert any((task.assignee == "李明") for task in tasks)
+        bad_assignees = {"也是因为", "没有给你", "月就必须", "天都重复"}
+        assert all((task.assignee not in bad_assignees) for task in tasks)
+
+    def test_extract_due_date_from_sentence(self, extractor):
+        """应识别任务中的截止日期表达。"""
+        text = "需要完成接口联调在本周五前提交。"
+        tasks = extractor.extract_from_text(text)
+        assert len(tasks) >= 1
+        assert any(task.due_date is not None for task in tasks)
+
+    def test_extract_by_llm_returns_structured_tasks(self):
+        """模型返回结构化任务时，应正确映射负责人和截止日期。"""
+        config = {
+            'use_llm_for_tasks': True,
+            'min_task_confidence': 0.6,
+            'llm': {},
+        }
+        extractor = TaskExtractor(config)
+
+        mock_llm = Mock()
+        mock_llm.generate_json.return_value = {
+            "action_items": [
+                {
+                    "description": "李明跟进招聘渠道对接",
+                    "assignee": "李明",
+                    "due_date": "2026-03-27T18:00:00+08:00",
+                    "priority": "high",
+                    "confidence": 0.9,
+                }
+            ]
+        }
+        extractor.llm_client = mock_llm
+
+        tasks = extractor._extract_by_llm("请李明在周五前完成招聘渠道对接")
+        assert len(tasks) == 1
+        assert tasks[0].assignee == "李明"
+        assert tasks[0].due_date is not None
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

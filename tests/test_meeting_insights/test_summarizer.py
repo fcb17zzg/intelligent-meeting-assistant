@@ -303,6 +303,21 @@ class TestMeetingSummarizer:
         else:
             pytest.skip("未配置LLM API，跳过真实配置测试")
 
+    def test_fallback_open_issues_filters_asr_noise(self, mock_config):
+        """未解决问题回退应过滤口语噪声句，仅保留可跟进问题。"""
+        with patch('meeting_insights.summarizer.LLMClientFactory'):
+            summarizer = MeetingSummarizer(mock_config)
+
+            sentences = [
+                "员的话会听一下 现在就是公司的一个住宿 是很大的一个问题 然后公司现在有两种方案",
+                "联调环境尚未稳定，测试排期仍需确认。",
+                "这个东西它的公司 都要很坦闷的你就知道",
+            ]
+
+            issues = summarizer._fallback_open_issues(sentences)
+            assert any("联调环境" in item for item in issues)
+            assert all("听一下" not in item for item in issues)
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

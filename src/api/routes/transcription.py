@@ -298,7 +298,34 @@ async def extract_actions_from_transcription(
         if not text:
             raise HTTPException(status_code=404, detail="未找到转录文本，请先上传或提供文本")
 
-        extractor = TaskExtractor(config={})
+        llm_config = {}
+        try:
+            from config.nlp_settings import NLPSettings
+
+            settings = NLPSettings()
+            provider = str(settings.llm_provider.value if hasattr(settings.llm_provider, "value") else settings.llm_provider).lower()
+            api_key = settings.llm_api_key
+            if provider in {"openai", "qwen"} and api_key:
+                llm_config = {
+                    "provider": provider,
+                    "model": settings.llm_model,
+                    "base_url": settings.llm_base_url,
+                    "api_key": api_key,
+                    "timeout": 60,
+                }
+                if llm_config.get("base_url") and not str(llm_config["base_url"]).rstrip("/").endswith("/v1"):
+                    llm_config["base_url"] = str(llm_config["base_url"]).rstrip("/") + "/v1"
+        except Exception:
+            llm_config = {}
+
+        extractor = TaskExtractor(
+            config={
+                "min_task_confidence": min_confidence,
+                "enable_date_parsing": True,
+                "use_llm_for_tasks": bool(llm_config),
+                "llm": llm_config,
+            }
+        )
         actions = extractor.extract_from_text(text)
 
         # 过滤置信度

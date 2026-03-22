@@ -14,9 +14,17 @@ app.use(pinia)
 app.use(router)
 app.use(ElementPlus)
 
-// 初始化认证状态
-const authStore = useAuthStore()
-await authStore.initAuth()
+async function bootstrap() {
+	// 初始化认证状态（失败时不中断页面挂载）
+	const authStore = useAuthStore()
+	try {
+		await authStore.initAuth()
+	} catch (error) {
+		console.error('初始化认证状态失败:', error)
+	}
 
-app.mount('#app')
+	app.mount('#app')
+}
+
+bootstrap()
 

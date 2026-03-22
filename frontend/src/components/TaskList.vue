@@ -250,7 +250,10 @@ const toggleTask = (task) => {
 }
 
 const editTask = (task) => {
-  editingTask.value = { ...task }
+  editingTask.value = {
+    ...task,
+    assignee: task.assignee_name || task.assignee || '',
+  }
   editDialogVisible.value = true
 }
 

@@ -457,13 +457,17 @@ const completeTask = async (task) => {
 
 const updateTask = async (task) => {
   try {
+    const dueDateValue = task.due_date
+      ? (task.due_date instanceof Date ? task.due_date.toISOString() : String(task.due_date))
+      : null
+
     await taskAPI.updateTask(task.id, {
       title: task.title,
       description: task.description,
-      due_date: task.due_date || null,
+      due_date: dueDateValue,
       priority: task.priority || 'medium',
       status: task.completed ? 'completed' : (task.status || 'pending'),
-      assignee_name: task.assignee_name || task.assignee || null,
+      assignee_name: task.assignee || task.assignee_name || null,
     })
     ElMessage.success('任务已更新')
     await loadTasks()

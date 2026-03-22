@@ -359,16 +359,32 @@ JSON 字段定义：
         return decisions[:4]
 
     def _fallback_open_issues(self, sentences: List[str]) -> List[str]:
-        issue_markers = ["待确认", "未确定", "尚未", "还需要", "风险", "问题", "阻塞", "卡点", "争议"]
+        unresolved_markers = [
+            "待确认", "未确定", "尚未", "还需要", "仍需", "未落实", "未完成", "无法", "不能", "缺少",
+            "风险", "阻塞", "卡点", "争议", "不明确", "没定", "未达成",
+        ]
+        context_markers = [
+            "方案", "资源", "时间", "成本", "预算", "招聘", "住宿", "接口", "测试", "排期", "环境", "人员", "责任",
+        ]
+        conversational_noise = [
+            "的话", "就是", "然后", "这个", "那个", "听一下", "你知道", "有点", "比较", "什么的", "这块", "那块",
+        ]
         open_issues: List[str] = []
         for sentence in sentences:
-            cleaned = sentence.strip()
+            cleaned = re.sub(r"\s+", " ", sentence.strip())
             if not cleaned:
                 continue
-            if len(cleaned) < 8 or len(cleaned) > 90:
+            if len(cleaned) < 10 or len(cleaned) > 50:
                 continue
-            if any(marker in cleaned for marker in issue_markers):
-                open_issues.append(self._shorten_text(cleaned, 70))
+            if any(marker in cleaned for marker in conversational_noise):
+                continue
+            if re.search(r"([\u4e00-\u9fffA-Za-z])\1{4,}", cleaned):
+                continue
+
+            has_unresolved_signal = any(marker in cleaned for marker in unresolved_markers)
+            has_context_signal = any(marker in cleaned for marker in context_markers)
+            if has_unresolved_signal and has_context_signal:
+                open_issues.append(self._shorten_text(cleaned, 48))
         return open_issues[:5]
 
     def _fallback_action_items(self, sentences: List[str]) -> List[str]:
