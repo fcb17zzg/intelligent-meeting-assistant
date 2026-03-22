@@ -84,9 +84,14 @@
             </el-checkbox>
             <span class="assignee">负责人: {{ item.assignee || '' }}</span>
             <span class="due-date">期限: {{ item.due_date ? formatDate(item.due_date) : '' }}</span>
-            <el-button text type="primary" size="small" @click="openActionItemEditor(item)">
-              编辑
-            </el-button>
+            <div class="action-item-actions">
+              <el-button text type="success" size="small" @click="addActionItemToTask(item)">
+                加入任务
+              </el-button>
+              <el-button text type="primary" size="small" @click="openActionItemEditor(item)">
+                编辑
+              </el-button>
+            </div>
           </div>
         </div>
       </div>
@@ -206,7 +211,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['update-notes', 'refresh', 'update-action-item'])
+const emit = defineEmits(['update-notes', 'refresh', 'update-action-item', 'add-action-item'])
 
 const editingNotes = ref(false)
 const localLoading = ref(false)
@@ -522,6 +527,18 @@ const openActionItemEditor = (item) => {
   actionItemDialogVisible.value = true
 }
 
+const addActionItemToTask = (item) => {
+  const description = String(item?.description || item?.text || '').trim()
+  if (!description) {
+    ElMessage.warning('行动项描述为空，无法加入任务')
+    return
+  }
+  emit('add-action-item', {
+    ...item,
+    description,
+  })
+}
+
 const saveActionItemEdit = () => {
   const payload = {
     ...editingActionItem.value,
@@ -664,6 +681,12 @@ const saveSummaryToBackend = async (summary) => {
       .due-date {
         font-size: 12px;
         color: #909399;
+        margin-left: 20px;
+      }
+
+      .action-item-actions {
+        display: flex;
+        gap: 8px;
         margin-left: 20px;
       }
     }

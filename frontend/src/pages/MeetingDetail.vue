@@ -123,6 +123,7 @@
           @refresh="loadSummary(true)"
           @update-notes="updateSummaryNotes"
           @update-action-item="upsertActionItemFromSummary"
+          @add-action-item="addActionItemToTask"
         />
       </el-card>
 
@@ -396,13 +397,22 @@ const loadMeetingDetail = async () => {
   }
 }
 
-const loadSummary = async (refreshAnalysis = false) => {
+const loadSummary = async (refreshAnalysis = false, allowActionRetry = true) => {
   summaryLoading.value = true
   try {
     const result = await meetingStore.getSummary(meetingId, {
       refresh_analysis: refreshAnalysis,
     })
     summary.value = result
+
+    const hasActionItems = Array.isArray(result?.action_items) && result.action_items.length > 0
+    const hasTranscript = Boolean(
+      meetingStore.currentMeeting?.transcript_formatted || meetingStore.currentMeeting?.transcript_raw
+    )
+    if (!refreshAnalysis && allowActionRetry && hasTranscript && !hasActionItems) {
+      await loadSummary(true, false)
+      return
+    }
   } catch (error) {
     console.log('获取摘要:', error)
     summary.value = summary.value || buildSummaryFallback(meetingStore.currentMeeting)
@@ -591,6 +601,10 @@ const upsertActionItemFromSummary = async (item) => {
   } catch (error) {
     ElMessage.error('保存行动项失败')
   }
+}
+
+const addActionItemToTask = async (item) => {
+  await upsertActionItemFromSummary(item)
 }
 
 const back = () => {
