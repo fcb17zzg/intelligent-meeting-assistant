@@ -468,7 +468,8 @@ class MeetingTranscriber:
         try:
             self.diarization_client = DiarizationClient(
                 DiarizationConfig(
-                    device=device if device != "auto" else "cpu",
+                    # 保持auto语义，交给DiarizationConfig基于CUDA可用性自动判定
+                    device=device if device != "auto" else None,
                     num_speakers=num_speakers,
                     min_speakers=min_speakers,
                     max_speakers=max_speakers,
@@ -1363,7 +1364,7 @@ if __name__ == "__main__":
     transcriber = MeetingTranscriber(
         whisper_model_size="base",
         language="zh",
-        device="cpu"
+        device="auto"
     )
     
     print(f"✅ MeetingTranscriber创建成功")

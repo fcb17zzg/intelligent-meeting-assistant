@@ -63,6 +63,11 @@ class WhisperClient:
                 self.config.device = "cuda" if torch.cuda.is_available() else "cpu"
             except ImportError:
                 self.config.device = "cpu"
+
+        # faster-whisper在CPU上不建议使用float16，自动调整为int8保证可用性与速度
+        if self.config.device == "cpu" and self.config.compute_type == "float16":
+            self.config.compute_type = "int8"
+            logger.info("检测到CPU环境，Whisper compute_type 自动调整为 int8")
         
         logger.info(f"WhisperClient初始化: model={self.config.model_size}, device={self.config.device}")
     

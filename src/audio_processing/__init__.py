@@ -85,7 +85,7 @@ except ImportError as e:
     # 创建虚拟配置
     class Settings:
         whisper_model = "base"
-        whisper_device = "cpu"
+        whisper_device = "auto"
         compute_type = "float16"
         target_sample_rate = 16000
         target_channels = 1

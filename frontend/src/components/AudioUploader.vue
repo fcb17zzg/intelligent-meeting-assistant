@@ -59,6 +59,7 @@
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { DocumentAdd, DocumentCopy, WarningFilled } from '@element-plus/icons-vue'
+import { meetingAPI } from '../api'
 
 const props = defineProps({
   meetingId: {
@@ -68,8 +69,6 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['upload-success', 'upload-error', 'file-selected'])
-
-import meetingProcessingService from '../services/meetingProcessingService'
 
 const fileInput = ref(null)
 const selectedFile = ref(null)
@@ -155,35 +154,29 @@ const uploadFile = async () => {
   }
 
   uploading.value = true
-  uploadProgress.value = 0
+  uploadProgress.value = 5
   errorMessage.value = ''
 
   try {
-    // 使用综合处理服务：上传 -> 转录 -> NLP -> 可视化（可选）
-    const result = await meetingProcessingService.processMeeting(selectedFile.value, {
-      language: 'auto',
-      enableDiarization: true,
-      enableNLPAnalysis: true,
-      enableVisualization: false,
-      meetingId: props.meetingId || 0,
-    })
+    // 与会议详情页统一：上传到会议并触发会议转录，确保结果写入数据库。
+    const uploadResult = await meetingAPI.uploadAudio(props.meetingId, selectedFile.value)
+    uploadProgress.value = 30
 
-    uploading.value = false
+    const transcribeResult = await meetingAPI.transcribeMeeting(props.meetingId)
     uploadProgress.value = 100
+    uploading.value = false
 
-    if (result && result.status === 'success') {
-      ElMessage.success('处理完成')
-      emit('upload-success', result)
-      clearFile()
-      return true
-    } else {
-      const msg = result?.error || '处理失败'
-      errorMessage.value = msg
-      emit('upload-error', msg)
-      return false
-    }
+    ElMessage.success('音频上传并转录完成')
+    emit('upload-success', {
+      status: 'success',
+      upload: uploadResult,
+      transcription: transcribeResult,
+    })
+    clearFile()
+    return true
   } catch (err) {
     uploading.value = false
+    uploadProgress.value = 0
     errorMessage.value = '上传或处理出错：' + (err.message || err)
     emit('upload-error', err.message || err)
     return false

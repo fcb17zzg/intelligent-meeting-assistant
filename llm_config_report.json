@@ -1,7 +1,7 @@
 {
-  "timestamp": "2026-02-14T22:20:32.530183",
+  "timestamp": "2026-03-15T23:21:11.805698",
   "current_provider": "LLMProvider.OPENAI",
-  "current_model": "gpt-3.5-turbo",
+  "current_model": "gpt-4o-mini",
   "providers": {
     "ollama": {
       "status": "disconnected",
@@ -10,10 +10,10 @@
       "message": "无法连接到 Ollama 服务"
     },
     "openai": {
-      "status": "configuration_error",
+      "status": "disconnected",
       "provider": "openai",
-      "error": "OPENAI_API_KEY 未设置",
-      "message": "请设置 OPENAI_API_KEY 环境变量"
+      "error": "'str' object has no attribute '_set_private_attributes'",
+      "message": "OpenAI 连接失败: 'str' object has no attribute '_set_private_attributes'"
     },
     "local": {
       "status": "not_configured",

@@ -57,6 +57,10 @@ class AudioProcessingSettings(BaseSettings):
     
     # Hugging Face Token（兼容旧版本）
     hf_token: Optional[str] = None
+
+    # Hugging Face网络配置
+    hf_hub_timeout: float = 8.0
+    hf_hub_max_retries: int = 1
     
     class Config:
         env_file = ".env"
@@ -69,9 +73,14 @@ class AudioProcessingSettings(BaseSettings):
         # 确保目录存在
         self._ensure_directories()
         
-        # 兼容性处理：如果diarization_auth_token未设置，使用hf_token
-        if not self.diarization_auth_token and self.hf_token:
-            self.diarization_auth_token = self.hf_token
+        # 兼容性处理：优先使用配置，其次兼容多种环境变量
+        if not self.diarization_auth_token:
+            self.diarization_auth_token = (
+                self.hf_token
+                or os.getenv("HF_TOKEN")
+                or os.getenv("HUGGINGFACE_HUB_TOKEN")
+                or os.getenv("HUGGINGFACE_TOKEN")
+            )
         
         # 自动检测设备
         self._auto_detect_device()
@@ -128,6 +137,8 @@ class AudioProcessingSettings(BaseSettings):
             "batch_size": self.diarization_batch_size,
             "clustering_threshold": 0.7,
             "embedding_batch_size": 16,
+            "hf_hub_timeout": self.hf_hub_timeout,
+            "hf_hub_max_retries": self.hf_hub_max_retries,
         }
         return config
     

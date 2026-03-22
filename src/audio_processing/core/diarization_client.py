@@ -34,6 +34,8 @@ class DiarizationConfig:
     # 高级参数
     clustering_threshold: float = 0.7  # 聚类阈值
     embedding_batch_size: int = 16     # 嵌入批大小
+    hf_hub_timeout: float = 8.0        # Hugging Face请求超时（秒）
+    hf_hub_max_retries: int = 1        # Hugging Face最大重试次数
     
     def __post_init__(self):
         """后初始化，设置设备"""
@@ -110,13 +112,12 @@ class DiarizationClient:
             
         try:
             logger.info(f"加载说话人分离pipeline: {self.config.model_name}")
+
+            # 配置Hugging Face网络行为：缩短超时并减少重试
+            self._configure_hf_network()
             
-            # 设置环境变量（如果提供了token）
-            if self.config.use_auth_token:
-                os.environ['HF_TOKEN'] = self.config.use_auth_token
-            elif os.environ.get('HF_TOKEN'):
-                # 使用系统环境变量中的token
-                self.config.use_auth_token = os.environ.get('HF_TOKEN')
+            # 设置token（优先配置，其次读取常见环境变量）
+            self._resolve_hf_token()
             
             # 抑制pyannote的警告
             warnings.filterwarnings("ignore", message=".*using `pyannote.audio`.*")
@@ -124,31 +125,16 @@ class DiarizationClient:
             # 加载pipeline - 修复版本兼容性问题
             from pyannote.audio import Pipeline
             self.pipeline = self._load_pipeline_with_compat(Pipeline)
+            if self.pipeline is None:
+                raise DiarizationError(
+                    "pyannote pipeline加载返回空对象，可能是鉴权失败或模型访问条件未同意。"
+                )
             
             # 设置设备
             self.pipeline.to(torch.device(self.config.device))
             
-            # 设置pipeline参数
-            pipeline_params = {
-                "clustering": {
-                    "method": "centroid",
-                    "min_cluster_size": 12,
-                    "threshold": self.config.clustering_threshold,
-                },
-                "segmentation": {
-                    "threshold": 0.5,
-                    "min_duration_off": 0.0,
-                }
-            }
-            
-            # 如果指定了说话人数，设置参数
-            if self.config.num_speakers is not None:
-                pipeline_params["num_speakers"] = self.config.num_speakers
-            else:
-                pipeline_params["min_speakers"] = self.config.min_speakers
-                pipeline_params["max_speakers"] = self.config.max_speakers
-            
-            self.pipeline.instantiate(pipeline_params)
+            # 不在初始化阶段注入参数，避免不同 pyannote 版本参数不兼容。
+            # 说话人数参数在 process_audio 中按需设置。
             
             self._is_initialized = True
             logger.info("说话人分离pipeline初始化成功")
@@ -157,12 +143,92 @@ class DiarizationClient:
         except Exception as e:
             error_msg = f"初始化说话人分离pipeline失败: {str(e)}"
             logger.error(error_msg)
+
+            if self._is_auth_related_error(e):
+                logger.error(
+                    "检测到Hugging Face鉴权问题。请确认token有效，且账号已接受模型页面的使用条款: "
+                    "https://hf.co/pyannote/speaker-diarization-3.1"
+                )
             
             # 降级到简单模式
             self._has_pyannote = False
             self._is_initialized = True
             logger.warning("已切换到降级模式（固定分段）")
             return True
+
+    def _resolve_hf_token(self):
+        """解析并统一设置Hugging Face token来源。"""
+        if self.config.use_auth_token:
+            token = self.config.use_auth_token.strip()
+            if token:
+                self.config.use_auth_token = token
+                os.environ["HF_TOKEN"] = token
+            return
+
+        token = (
+            os.environ.get("HF_TOKEN")
+            or os.environ.get("HUGGINGFACE_HUB_TOKEN")
+            or os.environ.get("HUGGINGFACE_TOKEN")
+        )
+        if token:
+            token = token.strip()
+            if token:
+                self.config.use_auth_token = token
+                os.environ["HF_TOKEN"] = token
+
+    def _is_auth_related_error(self, error: Exception) -> bool:
+        text = str(error).lower()
+        keywords = [
+            "401",
+            "unauthorized",
+            "gated",
+            "accept the user conditions",
+            "could not download",
+            "authenticate",
+            "token",
+        ]
+        return any(keyword in text for keyword in keywords)
+
+    def _configure_hf_network(self):
+        """配置 huggingface_hub 超时与重试策略，避免长时间阻塞。"""
+        timeout = max(float(self.config.hf_hub_timeout), 1.0)
+        retries = max(int(self.config.hf_hub_max_retries), 0)
+
+        # 同时设置HEAD元数据请求和下载请求超时
+        os.environ["HF_HUB_ETAG_TIMEOUT"] = str(timeout)
+        os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = str(timeout)
+
+        # 可选：为较新版本 huggingface_hub 配置更小的重试次数
+        try:
+            import requests
+            from requests.adapters import HTTPAdapter
+            from urllib3.util.retry import Retry
+            from huggingface_hub import configure_http_backend
+
+            def backend_factory() -> requests.Session:
+                session = requests.Session()
+                retry = Retry(
+                    total=retries,
+                    connect=retries,
+                    read=retries,
+                    status=retries,
+                    backoff_factor=0.3,
+                    status_forcelist=(429, 500, 502, 503, 504),
+                    allowed_methods={"HEAD", "GET"},
+                    raise_on_status=False,
+                )
+                adapter = HTTPAdapter(max_retries=retry)
+                session.mount("https://", adapter)
+                session.mount("http://", adapter)
+                return session
+
+            configure_http_backend(backend_factory=backend_factory)
+            logger.info(
+                f"Hugging Face网络策略已应用: timeout={timeout}s, max_retries={retries}"
+            )
+        except Exception as e:
+            # 兼容旧版 huggingface_hub，至少保证超时环境变量生效
+            logger.debug(f"配置Hugging Face重试策略失败，保留超时设置: {e}")
 
     def _load_pipeline_with_compat(self, pipeline_cls):
         """兼容不同版本 pyannote/huggingface_hub 的 pipeline 加载。"""
@@ -182,13 +248,25 @@ class DiarizationClient:
             elif "use_auth_token" in params:
                 kwargs["use_auth_token"] = auth_token
 
+        logger.info(f"加载pyannote pipeline鉴权状态: token={'SET' if bool(auth_token) else 'EMPTY'}")
+
         try:
-            return from_pretrained(self.config.model_name, **kwargs)
+            pipeline = from_pretrained(self.config.model_name, **kwargs)
+            if pipeline is None:
+                raise DiarizationError(
+                    "Pipeline.from_pretrained返回None，可能是鉴权失败或模型访问权限不足。"
+                )
+            return pipeline
         except TypeError as type_error:
             error_text = str(type_error)
             if any(key in error_text for key in ["use_auth_token", "token", "hf_hub_download"]):
                 logger.warning(f"检测到Hub参数兼容问题，尝试无鉴权参数重试: {type_error}")
-                return from_pretrained(self.config.model_name)
+                pipeline = from_pretrained(self.config.model_name)
+                if pipeline is None:
+                    raise DiarizationError(
+                        "无鉴权参数重试后pipeline仍为None，可能是模型受限或网络异常。"
+                    )
+                return pipeline
             raise
     
     def process_audio(

@@ -42,6 +42,100 @@ def _summarize_extractive(text: str, max_sentences: int = 3) -> str:
     return summary
 
 
+_ZH_TOPIC_STOPWORDS = {
+    "我们", "你们", "他们", "这个", "那个", "这里", "那边", "然后", "而且", "如果", "因为", "所以",
+    "就是", "还是", "可能", "感觉", "问题", "事情", "内容", "情况", "时候", "方面", "一下", "一个",
+    "可以", "没有", "不是", "需要", "进行", "相关", "以及", "已经", "目前", "这个事",
+}
+
+_EN_TOPIC_STOPWORDS = {
+    "the", "and", "for", "with", "that", "this", "from", "they", "will", "have", "were", "been", "about", "your",
+    "you", "our", "are", "was", "is", "to", "of", "in", "on", "at", "it", "as", "an", "or", "we", "i", "a",
+    "uh", "um", "yeah", "ok", "okay", "like", "just", "really", "very", "there", "here", "then",
+}
+
+
+def _is_valid_topic_name(name: str) -> bool:
+    topic = str(name or "").strip(" ，,.:;:!?！？。；【】[]()（）\"")
+    if not topic:
+        return False
+    if len(topic) < 2 or len(topic) > 24:
+        return False
+    if "SPEAKER_" in topic.upper():
+        return False
+    if re.search(r"\d{4,}", topic):
+        return False
+
+    lowered = topic.lower()
+    if lowered in _EN_TOPIC_STOPWORDS or topic in _ZH_TOPIC_STOPWORDS:
+        return False
+
+    if re.fullmatch(r"[A-Za-z]{1,3}", topic):
+        return False
+    if re.search(r"([A-Za-z\u4e00-\u9fff])\1{3,}", topic):
+        return False
+    return True
+
+
+def _sanitize_key_topics(raw_topics: list, max_topics: int = 5) -> list[dict]:
+    normalized: list[dict] = []
+    dedup: set[str] = set()
+
+    for topic in raw_topics or []:
+        if isinstance(topic, str):
+            name = topic.strip()
+            keywords = []
+        elif isinstance(topic, dict):
+            name = str(topic.get("name", "") or "").strip()
+            keywords = [str(k).strip() for k in topic.get("keywords", []) if str(k).strip()]
+        else:
+            continue
+
+        if not _is_valid_topic_name(name):
+            continue
+
+        clean_keywords = []
+        seen_kw: set[str] = set()
+        for keyword in keywords:
+            if not _is_valid_topic_name(keyword):
+                continue
+            key = keyword.lower()
+            if key in seen_kw:
+                continue
+            seen_kw.add(key)
+            clean_keywords.append(keyword)
+
+        topic_key = name.lower()
+        if topic_key in dedup:
+            continue
+        dedup.add(topic_key)
+        normalized.append({"name": name, "keywords": clean_keywords[:6]})
+
+        if len(normalized) >= max_topics:
+            break
+
+    return normalized
+
+
+def _fallback_topics_from_text(transcript_text: str, max_topics: int = 5) -> list[dict]:
+    token_pattern = re.compile(r"[\u4e00-\u9fff]{2,8}|[A-Za-z]{4,20}")
+    counts: dict[str, int] = {}
+
+    for token in token_pattern.findall(transcript_text or ""):
+        word = str(token).strip()
+        if not word:
+            continue
+        lowered = word.lower()
+        if word in _ZH_TOPIC_STOPWORDS or lowered in _EN_TOPIC_STOPWORDS:
+            continue
+        if not _is_valid_topic_name(word):
+            continue
+        counts[word] = counts.get(word, 0) + 1
+
+    ranked = sorted(counts.items(), key=lambda item: item[1], reverse=True)
+    return [{"name": topic, "keywords": [topic]} for topic, _ in ranked[:max_topics]]
+
+
 def _safe_filename(filename: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", filename or "audio.wav")
     return cleaned or "audio.wav"
@@ -253,7 +347,9 @@ def _generate_summary_payload(transcript_text: str, duration: Optional[float]) -
     summary_data["summary"] = str(summary_data.get("summary", "") or "").strip()
     summary_data["executive_summary"] = str(summary_data.get("executive_summary", "") or "").strip()
     summary_data["decisions"] = [str(item).strip() for item in summary_data.get("decisions", []) if str(item).strip()]
-    summary_data["key_topics"] = [topic for topic in summary_data.get("key_topics", []) if topic]
+    summary_data["key_topics"] = _sanitize_key_topics(summary_data.get("key_topics", []), max_topics=5)
+    if not summary_data["key_topics"]:
+        summary_data["key_topics"] = _fallback_topics_from_text(transcript_text, max_topics=5)
     summary_data["summary_type"] = summary_data.get("summary_type") or ("abstractive" if llm_config else "extractive")
     return summary_data
 
@@ -261,7 +357,7 @@ def _generate_summary_payload(transcript_text: str, duration: Optional[float]) -
 def _extract_action_items(transcript_text: str) -> list[dict]:
     extractor = TaskExtractor({"min_task_confidence": 0.55, "enable_date_parsing": True})
     actions = extractor.extract_from_text(transcript_text)
-    return [
+    raw_items = [
         {
             "id": action.id,
             "description": action.description,
@@ -273,6 +369,49 @@ def _extract_action_items(transcript_text: str) -> list[dict]:
         }
         for action in actions
     ]
+
+    assignee_blacklist = {
+        "我们", "你们", "他们", "公司", "大家", "这个", "那个", "这里", "那边", "然后", "而且", "如果", "因为",
+        "we", "you", "they", "team", "company",
+    }
+    verb_hint = ("负责", "完成", "提交", "跟进", "处理", "优化", "安排", "准备", "解决", "推进", "落实")
+
+    filtered: list[dict] = []
+    dedup_keys: set[str] = set()
+    for item in raw_items:
+        description = re.sub(r"\s+", " ", str(item.get("description", "") or "")).strip()
+        assignee = str(item.get("assignee", "") or "").strip()
+        confidence = float(item.get("confidence", 0.0) or 0.0)
+
+        if confidence < 0.75:
+            continue
+        if len(description) < 8 or len(description) > 80:
+            continue
+        if not any(v in description for v in verb_hint):
+            continue
+        # 丢弃明显低信息密度片段（如停用词堆积）
+        words = re.findall(r"[A-Za-z]{2,}|[\u4e00-\u9fff]{1,6}", description)
+        if words:
+            unique_ratio = len(set([w.lower() for w in words])) / len(words)
+            if len(words) >= 6 and unique_ratio < 0.45:
+                continue
+        if assignee and (len(assignee) < 2 or len(assignee) > 8 or assignee in assignee_blacklist):
+            continue
+
+        # 避免把说话人标记残片当作任务正文
+        if "SPEAKER_" in description or "[" in description or "]" in description:
+            continue
+
+        key = re.sub(r"[，。！？；:：\s]", "", description)
+        if key in dedup_keys:
+            continue
+        dedup_keys.add(key)
+
+        item["description"] = description
+        item["assignee"] = assignee or None
+        filtered.append(item)
+
+    return filtered[:12]
 
 
 def _persist_action_items(db: Session, meeting_id: int, action_items: list[dict]) -> None:
@@ -506,19 +645,22 @@ async def get_meeting_summary(meeting_id: int, db: Session = Depends(get_db)):
         except Exception:
             pass
 
+    key_topic_details = _sanitize_key_topics(key_topic_details or key_topics, max_topics=5)
+    key_topics = [item["name"] for item in key_topic_details]
+
     if not key_topics and transcript_text:
         try:
             from src.nlp_processing.topic_analyzer import TopicAnalyzer
             analyzer = TopicAnalyzer(config={'language': 'zh', 'method': 'textrank', 'num_topics': 5})
             topics = analyzer.analyze_meeting_topics(_split_sentences(transcript_text))
-            key_topics = [topic.get("name") for topic in topics if topic.get("name")][:5]
-            key_topic_details = topics[:5]
+            key_topic_details = _sanitize_key_topics(topics, max_topics=5)
+            key_topics = [item["name"] for item in key_topic_details]
         except Exception as topic_error:
             logger.warning(f"会议摘要议题提取失败，使用句子回退: {topic_error}")
 
     if not key_topics and transcript_text:
-        key_topics = _split_sentences(transcript_text)[:5]
-        key_topic_details = [{"name": topic, "keywords": []} for topic in key_topics]
+        key_topic_details = _fallback_topics_from_text(transcript_text, max_topics=5)
+        key_topics = [item["name"] for item in key_topic_details]
 
     speaker_stats = _build_speaker_stats(segments)
     action_items = _extract_action_items(transcript_text) if transcript_text else []
@@ -770,7 +912,7 @@ async def analyze_meeting(meeting_id: int, db: Session = Depends(get_db)):
 
     meeting.summary = summary_data.get("summary") or _summarize_extractive(transcript_text, max_sentences=4)
     meeting.summary_type = summary_data.get("summary_type", "extractive")
-    meeting.key_topics = json.dumps(summary_data.get("key_topics", []), ensure_ascii=False)
+    meeting.key_topics = json.dumps(_sanitize_key_topics(summary_data.get("key_topics", []), max_topics=5), ensure_ascii=False)
 
     meeting.status = MeetingStatus.COMPLETED
     meeting.updated_at = datetime.utcnow()

@@ -14,6 +14,42 @@ class TaskExtractor:
         self.config = config
         self.date_keywords = ['截止', 'deadline', '之前', '前完成', '下周一', '本周五']
         self.min_confidence = config.get('min_task_confidence', 0.6)
+
+    def _normalize_task_text(self, text: str) -> str:
+        cleaned = re.sub(r"\[\s*SPEAKER_[^\]]+\]\s*", "", str(text or ""), flags=re.IGNORECASE)
+        cleaned = re.sub(r"\bSPEAKER_\d+\b", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" ，,。；;:：")
+        cleaned = re.sub(r"^(好的|嗯|啊|然后|就是|这个|那个)\s*", "", cleaned)
+        return cleaned
+
+    def _is_reasonable_assignee(self, assignee: Optional[str]) -> bool:
+        if not assignee:
+            return False
+        name = str(assignee).strip()
+        if len(name) < 2 or len(name) > 8:
+            return False
+        return name not in {"我们", "你们", "他们", "公司", "大家", "这个", "那个", "项目", "团队"}
+
+    def _build_task_description(self, pattern_index: int, match) -> str:
+        if pattern_index == 0:
+            owner = str(match.group(1) or "").strip()
+            task = str(match.group(2) or "").strip()
+            return f"{owner}负责{task}"
+        if pattern_index == 1:
+            task = str(match.group(1) or "").strip()
+            due = str(match.group(2) or "").strip()
+            return f"{task}（截止{due}）" if due else task
+        if pattern_index == 2:
+            owner = str(match.group(1) or "").strip()
+            task = str(match.group(2) or "").strip()
+            return f"{owner}负责{task}"
+        if pattern_index == 3:
+            return str(match.group(1) or "").strip()
+        if pattern_index == 4:
+            due = str(match.group(1) or "").strip()
+            task = str(match.group(2) or "").strip()
+            return f"{task}（截止{due}）" if due else task
+        return str(match.group(0) or "").strip()
         
     def extract_from_text(self, text: str, speaker_segments=None) -> List[ActionItem]:
         """从文本中提取任务项"""
@@ -52,29 +88,29 @@ class TaskExtractor:
             r'([\d年月日周一二三四五六天]+|下周一|本周五|月底|周五|下周三)[\s]*(?:前|之前)[\s]*(?:完成|提交|准备)[\s]*([^，。；！？\n]{2,50})',
         ]
         
-        for pattern in patterns:
+        for idx, pattern in enumerate(patterns):
             matches = re.finditer(pattern, text)
             for match in matches:
-                task_desc = match.group(0).strip()
+                task_desc = self._normalize_task_text(self._build_task_description(idx, match))
+                if len(task_desc) < 6 or len(task_desc) > 80:
+                    continue
                 
                 # 提取负责人
                 assignee = None
-                if len(match.groups()) >= 1 and match.group(1):
+                if idx in {0, 2} and len(match.groups()) >= 1 and match.group(1):
                     assignee = match.group(1)
+                    if not self._is_reasonable_assignee(assignee):
+                        assignee = None
                 
                 # 提取截止日期
                 due_date = None
                 due_text = None
-                if len(match.groups()) >= 2:
+                if idx in {1, 4} and len(match.groups()) >= 2:
                     due_text = match.group(2)
+                    if idx == 4:
+                        due_text = match.group(1)
                     if due_text and self.config.get('enable_date_parsing', True):
                         due_date = self._parse_date(due_text)
-                elif len(match.groups()) == 1 and pattern == patterns[4]:
-                    # 处理模式5：日期在第一个group
-                    due_text = match.group(1)
-                    if due_text:
-                        due_date = self._parse_date(due_text)
-                    task_desc = f"{due_text}前{match.group(2)}"
                 
                 # 确定优先级
                 priority = self._determine_priority(task_desc)

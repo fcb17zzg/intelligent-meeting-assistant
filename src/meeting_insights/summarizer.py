@@ -229,17 +229,19 @@ JSON 字段定义：
         if topic_names:
             summary_parts.append(f"会议重点讨论了{'、'.join(topic_names)}")
         if actions:
-            summary_parts.append(f"已明确分工：{'；'.join(actions[:2])}")
+            summary_parts.append(f"识别到{len(actions)}项待跟进行动")
         if decisions:
-            summary_parts.append(f"形成决策：{'；'.join(decisions[:2])}")
+            summary_parts.append(f"提取到{len(decisions)}条决策线索")
         if not summary_parts and sentences:
-            summary_parts.append("；".join(sentences[:2]))
+            summary_parts.append("；".join([self._shorten_text(s, 60) for s in sentences[:2]]))
 
         summary = "。".join([part.strip("。； ") for part in summary_parts if part.strip()]).strip()
+        summary = self._shorten_text(summary, 220)
         if summary and not summary.endswith("。"):
             summary += "。"
 
         executive_summary = "；".join([part.strip("。 ") for part in summary_parts[:2] if part.strip()]).strip()
+        executive_summary = self._shorten_text(executive_summary, 120)
         if executive_summary and not executive_summary.endswith("。"):
             executive_summary += "。"
 
@@ -254,7 +256,29 @@ JSON 字段定义：
 
     def _split_sentences(self, text: str) -> List[str]:
         parts = re.split(r"[。！？!?；;\n\r]+", text or "")
-        return [part.strip(" ，,\t") for part in parts if part and part.strip(" ，,\t")]
+        normalized = [part.strip(" ，,\t") for part in parts if part and part.strip(" ，,\t")]
+
+        # ASR文本常缺少句号，补充按逗号与长度切分，避免单句超长污染摘要。
+        expanded: List[str] = []
+        for sentence in normalized:
+            if len(sentence) <= 80:
+                expanded.append(sentence)
+                continue
+
+            comma_parts = re.split(r"[，,]+", sentence)
+            for chunk in comma_parts:
+                chunk = chunk.strip(" ，,\t")
+                if not chunk:
+                    continue
+                if len(chunk) <= 80:
+                    expanded.append(chunk)
+                else:
+                    for i in range(0, len(chunk), 70):
+                        piece = chunk[i:i+70].strip(" ，,\t")
+                        if piece:
+                            expanded.append(piece)
+
+        return expanded
 
     def _clean_transcript_text(self, text: str) -> str:
         cleaned = re.sub(r"\[\s*SPEAKER_[^\]]+\]\s*", "", text or "", flags=re.IGNORECASE)
@@ -285,6 +309,10 @@ JSON 字段定义：
             ("任务分工", ["负责", "分工", "安排"]),
             ("时间节点", ["截止", "周一", "周二", "周三", "周四", "周五", "时间"]),
             ("模块优先级", ["先完成", "优先", "支付", "报表"]),
+            ("用工与招聘", ["招聘", "中介", "派遣", "员工"]),
+            ("薪资与加班", ["工资", "加班", "时薪", "补贴"]),
+            ("住宿与福利", ["住宿", "饭卡", "福利", "补助"]),
+            ("工作强度", ["压力", "夜班", "流水线", "环境"]),
         ]
 
         topics: List[Dict[str, Any]] = []
@@ -293,28 +321,72 @@ JSON 字段定义：
             if hits:
                 topics.append({"name": name, "keywords": hits[:4]})
 
+        if len(topics) >= 2:
+            return topics[:5]
+
+        # 规则命中不足时，使用高频词回退，避免只输出泛化议题。
+        keywords = self._fallback_keywords(text, top_k=8)
+        for kw in keywords:
+            if kw in {"负责", "安排", "时间", "问题", "公司", "我们"}:
+                continue
+            topics.append({"name": kw, "keywords": [kw]})
+            if len(topics) >= 5:
+                break
+
         return topics[:5]
 
     def _fallback_decisions(self, sentences: List[str]) -> List[str]:
-        decision_markers = ["决定", "确定", "通过", "先完成", "优先", "安排"]
+        decision_markers = ["决定", "确定", "通过", "拍板", "达成", "同意"]
         decisions: List[str] = []
         for sentence in sentences:
-            if any(marker in sentence for marker in decision_markers):
-                decisions.append(sentence.strip())
+            cleaned = sentence.strip()
+            if not cleaned:
+                continue
+            if len(cleaned) < 8 or len(cleaned) > 90:
+                continue
+            if any(marker in cleaned for marker in decision_markers):
+                decisions.append(self._shorten_text(cleaned, 70))
         return decisions[:4]
 
     def _fallback_action_items(self, sentences: List[str]) -> List[str]:
         actions: List[str] = []
-        pattern = re.compile(r"([\u4e00-\u9fff]{2,6})负责([^，。；;]+)")
+        pattern = re.compile(r"([\u4e00-\u9fff]{2,6})负责([^，。；;]{2,40})")
         for sentence in sentences:
+            sentence = sentence.strip()
+            if len(sentence) < 6 or len(sentence) > 120:
+                continue
             matches = pattern.findall(sentence)
             for owner, task in matches:
+                if owner in {"我们", "你们", "他们", "公司", "大家", "这个", "那个"}:
+                    continue
                 action = f"{owner}负责{task.strip()}"
                 due = re.search(r"(周[一二三四五六日天][^，。；; ]*)", sentence)
                 if due:
                     action = f"{action}（截止{due.group(1)}）"
-                actions.append(action)
+                actions.append(self._shorten_text(action, 60))
         return actions[:4]
+
+    def _shorten_text(self, text: str, max_len: int) -> str:
+        content = str(text or "").strip()
+        if len(content) <= max_len:
+            return content
+        return content[:max_len].rstrip("，,。；; ") + "..."
+
+    def _fallback_keywords(self, text: str, top_k: int = 8) -> List[str]:
+        tokens = re.findall(r"[\u4e00-\u9fff]{2,6}", text or "")
+        stopwords = {
+            "我们", "你们", "他们", "这个", "那个", "现在", "然后", "就是", "因为", "所以",
+            "一个", "没有", "可以", "还是", "比较", "公司", "问题", "东西", "时候", "这种",
+            "工作", "员工", "安排", "负责", "时间", "这里", "那边", "这样", "的话",
+        }
+        counts: Dict[str, int] = {}
+        for token in tokens:
+            if token in stopwords:
+                continue
+            counts[token] = counts.get(token, 0) + 1
+
+        sorted_tokens = sorted(counts.items(), key=lambda item: item[1], reverse=True)
+        return [word for word, _ in sorted_tokens[:top_k]]
 
     def _resolve_llm_config(self, llm_config: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         """解析摘要器 LLM 配置，优先使用环境变量。"""

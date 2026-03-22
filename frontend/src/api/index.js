@@ -38,7 +38,9 @@ export const meetingAPI = {
 
   // 开始转录
   transcribeMeeting(meetingId) {
-    return client.post(`/meetings/${meetingId}/transcribe`)
+    return client.post(`/meetings/${meetingId}/transcribe`, null, {
+      timeout: 60 * 60 * 1000,
+    })
   },
 
   // 获取转录结果

@@ -100,10 +100,47 @@ Define pass/fail thresholds before generation:
 1. Confirm requirements and constraints.
 2. Draft scenario matrix and annotation schema.
 3. Produce generation blueprint (without generating audio).
-4. Ask user for approval.
-5. Only after approval, generate audio and annotations.
-6. Run pipeline tests and collect metrics.
-7. Produce a comparison report across scenarios.
+4. If repository context is unclear, call an Explore subagent to locate reusable scripts under `scripts/`, tests under `tests/audio_processing/`, and output directories under `test_audio/generated/`.
+5. Ask user for approval.
+6. Only after approval, generate audio and annotations.
+7. Run pipeline tests and collect metrics.
+8. Produce a comparison report across scenarios.
+
+## Script Invocation (Repository-Aware)
+
+Use script-first execution to keep the workflow reproducible.
+
+### Default Mode
+
+- Default to `plan-only` mode: output a JSON plan and command templates.
+- Do not generate audio files unless the user explicitly requests generation.
+
+### Existing Repository Entry Points
+
+- End-to-end sample check: `python scripts/run_real_audio_e2e_check.py`
+- Long-audio processing tests: `pytest tests/audio_processing/test_long_audio.py -s`
+
+### Plan Script (Recommended)
+
+Use the planning script to create deterministic scenario specs and command templates:
+
+- `python scripts/generate_long_audio_test_plan.py --duration-min 120 --speakers 4 --scenario-set stress --plan-only --output test_audio/generated/plans`
+
+Expected outputs:
+
+- Plan JSON file in `test_audio/generated/plans/`
+- Scenario matrix and acceptance thresholds
+- Suggested generation commands (not executed)
+
+### Optional Generation Step (Only With User Approval)
+
+After approval, run one of the generated commands to produce audio files and annotations, then execute pipeline tests.
+
+### Naming and Path Convention
+
+- Plan file: `long_audio_plan_<timestamp>.json`
+- Suggested audio file naming: `<duration_sec>s_<speaker_count>spk_<scenario>.wav`
+- Generated assets root: `test_audio/generated/`
 
 ## Safety and Practical Constraints
 
@@ -128,3 +165,4 @@ Use this response format:
 - This skill does not run model training.
 - This skill does not modify production business logic.
 - This skill does not generate audio automatically unless explicitly requested.
+- This skill does not auto-run generated shell commands without user confirmation.

@@ -43,7 +43,7 @@ export const audioProcessingService = {
         context,
       },
       {
-        timeout: 10 * 60 * 1000,
+        timeout: 60 * 60 * 1000,
       }
     )
   },
