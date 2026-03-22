@@ -116,9 +116,20 @@ export const useMeetingStore = defineStore('meeting', () => {
     try {
       await meetingAPI.deleteMeeting(meetingId)
       const normalizedId = Number(meetingId)
-      meetings.value = meetings.value.filter((m) => m.id !== normalizedId)
-      if (currentMeeting.value?.id === normalizedId) {
+      meetings.value = meetings.value.filter((m) => Number(m.id) !== normalizedId)
+      if (Number(currentMeeting.value?.id) === normalizedId) {
         currentMeeting.value = null
+      }
+
+      // 删除后立即与服务端同步，避免刷新后显示旧缓存数据
+      const response = await meetingAPI.getMeetings()
+      const payload = response.data || response
+      if (Array.isArray(payload)) {
+        meetings.value = payload
+      } else if (payload && Array.isArray(payload.meetings)) {
+        meetings.value = payload.meetings
+      } else {
+        meetings.value = []
       }
     } catch (err) {
       error.value = err.message || '删除会议失败'

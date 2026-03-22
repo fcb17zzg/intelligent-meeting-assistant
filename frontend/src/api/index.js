@@ -4,7 +4,12 @@ import client from './client'
 export const meetingAPI = {
   // 获取会议列表
   getMeetings(params = {}) {
-    return client.get('/meetings', { params })
+    return client.get('/meetings', {
+      params: {
+        ...params,
+        _t: Date.now(),
+      },
+    })
   },
 
   // 获取会议详情
