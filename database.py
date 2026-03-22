@@ -80,6 +80,15 @@ def ensure_schema_compatibility() -> None:
         if "participants" not in column_names:
             conn.execute(text("ALTER TABLE meetings ADD COLUMN participants INTEGER"))
 
+        tasks_table_exists = conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'")
+        ).first()
+        if tasks_table_exists:
+            task_rows = conn.execute(text("PRAGMA table_info(tasks)")).fetchall()
+            task_column_names = {row[1] for row in task_rows}
+            if "assignee_name" not in task_column_names:
+                conn.execute(text("ALTER TABLE tasks ADD COLUMN assignee_name TEXT"))
+
 
 def get_engine() -> Engine:
     """获取数据库引擎"""

@@ -64,27 +64,24 @@
           <span>🎤 音频处理</span>
         </template>
 
-        <!-- 如果还没上传音频，显示上传组件 -->
-        <div v-if="!meeting.audio_path">
-          <p style="margin-bottom: 20px; color: #606266">
-            请上传会议音频文件，系统将自动进行转录和分析
-          </p>
-          <AudioUploader
-            :meeting-id="meeting.id"
-            @upload-success="onAudioUploadSuccess"
-            @upload-error="onAudioUploadError"
-          />
-        </div>
+        <p style="margin-bottom: 12px; color: #606266">
+          支持重复上传新音频。上传新文件后会覆盖该会议此前的转录与分析结果。
+        </p>
+        <AudioUploader
+          :meeting-id="meeting.id"
+          @upload-success="onAudioUploadSuccess"
+          @upload-error="onAudioUploadError"
+        />
 
         <!-- 已上传音频信息 -->
-        <div v-else>
+        <div v-if="meeting.audio_path" style="margin-top: 16px">
           <el-alert title="✓ 音频已上传" type="success" :closable="false" />
           <div style="margin-top: 16px">
             <p>
-              <strong>文件:</strong> {{ meeting.audio_filename }}
+              <strong>文件:</strong> {{ audioFileName }}
             </p>
-            <p v-if="meeting.audio_duration">
-              <strong>时长:</strong> {{ meeting.audio_duration }}秒
+            <p v-if="meeting.duration">
+              <strong>时长:</strong> {{ Number(meeting.duration).toFixed(1) }}秒
             </p>
 
             <!-- 转录进度 -->
@@ -94,7 +91,7 @@
             </div>
 
             <!-- 转录完成 -->
-            <div v-else-if="meeting.transcript_status === 'completed'" style="margin-top: 16px">
+            <div v-else-if="meeting.transcript_raw || meeting.transcript_formatted" style="margin-top: 16px">
               <el-alert
                 title="✓ 转录已完成"
                 type="success"
@@ -150,6 +147,22 @@
         <template #header>
           <span>✅ 会议任务</span>
         </template>
+
+        <el-alert
+          v-if="reminderOverview.overdue_count > 0"
+          :title="`有 ${reminderOverview.overdue_count} 项任务已逾期`"
+          type="error"
+          :closable="false"
+          style="margin-bottom: 12px"
+        />
+        <el-alert
+          v-else-if="reminderOverview.due_soon_count > 0"
+          :title="`有 ${reminderOverview.due_soon_count} 项任务即将到期（48小时内）`"
+          type="warning"
+          :closable="false"
+          style="margin-bottom: 12px"
+        />
+
         <TaskList
           :tasks="tasks"
           @complete-task="completeTask"
@@ -203,6 +216,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useMeetingStore } from '@/stores/meetingStore'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatDate } from '@/utils/dateUtils'
+import { taskAPI } from '@/api'
 import AudioUploader from '@/components/AudioUploader.vue'
 import SummaryDisplay from '@/components/SummaryDisplay.vue'
 import TaskList from '@/components/TaskList.vue'
@@ -223,8 +237,20 @@ const summaryLoading = ref(false)
 const transcriptionData = ref(null)
 const visualizationResults = ref(null)
 const vizLoading = ref(false)
+const reminderOverview = ref({
+  due_soon_count: 0,
+  overdue_count: 0,
+  due_soon: [],
+  overdue: [],
+})
 
 const meetingId = route.params.id
+const audioFileName = computed(() => {
+  const fullPath = String(meeting.value?.audio_path || '').trim()
+  if (!fullPath) return ''
+  const normalized = fullPath.replace(/\\/g, '/')
+  return normalized.split('/').pop() || fullPath
+})
 
 const statusOptions = [
   { value: 'scheduled', label: '已排期' },
@@ -363,9 +389,25 @@ const generateVisualization = async () => {
 const loadTasks = async () => {
   try {
     const result = await meetingStore.getTasks(meetingId)
-    tasks.value = Array.isArray(result) ? result : result.data || []
+    const raw = Array.isArray(result) ? result : result.data || []
+    tasks.value = raw.map((task) => ({
+      ...task,
+      completed: task.status === 'completed',
+      assignee: task.assignee || null,
+      assignee_name: task.assignee_name || task.assignee || null,
+    }))
+    await loadTaskReminders()
   } catch (error) {
     console.log('获取任务列表:', error)
+  }
+}
+
+const loadTaskReminders = async () => {
+  try {
+    const response = await taskAPI.getReminders({ meeting_id: Number(meetingId) })
+    reminderOverview.value = response?.data || response || reminderOverview.value
+  } catch (error) {
+    console.log('获取任务提醒失败:', error)
   }
 }
 
@@ -402,15 +444,42 @@ const deleteMeeting = () => {
 }
 
 const completeTask = async (task) => {
-  ElMessage.success(`任务已${task.completed ? '标记完成' : '标记未完成'}`)
+  try {
+    await taskAPI.updateTask(task.id, {
+      status: task.completed ? 'completed' : 'pending',
+    })
+    ElMessage.success(`任务已${task.completed ? '标记完成' : '标记未完成'}`)
+    await loadTasks()
+  } catch (error) {
+    ElMessage.error('更新任务状态失败')
+  }
 }
 
 const updateTask = async (task) => {
-  ElMessage.success('任务已更新')
+  try {
+    await taskAPI.updateTask(task.id, {
+      title: task.title,
+      description: task.description,
+      due_date: task.due_date || null,
+      priority: task.priority || 'medium',
+      status: task.completed ? 'completed' : (task.status || 'pending'),
+      assignee_name: task.assignee_name || task.assignee || null,
+    })
+    ElMessage.success('任务已更新')
+    await loadTasks()
+  } catch (error) {
+    ElMessage.error('更新任务失败')
+  }
 }
 
 const deleteTask = async (taskId) => {
-  tasks.value = tasks.value.filter((t) => t.id !== taskId)
+  try {
+    await taskAPI.deleteTask(taskId)
+    tasks.value = tasks.value.filter((t) => t.id !== taskId)
+    ElMessage.success('任务已删除')
+  } catch (error) {
+    ElMessage.error('删除任务失败')
+  }
 }
 
 const updateSummaryNotes = (notes) => {

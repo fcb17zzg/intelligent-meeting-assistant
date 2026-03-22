@@ -9,12 +9,13 @@ import uuid
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi.responses import JSONResponse, PlainTextResponse, HTMLResponse
 from sqlmodel import Session, select
 from pathlib import Path
 
 from models import (
     Meeting, MeetingRead, MeetingCreate, MeetingUpdate, MeetingDetail,
-    MeetingStatus, Task, TaskRead, TranscriptSegment, TranscriptSegmentRead, Comment
+    MeetingStatus, Task, TaskRead, TranscriptSegment, TranscriptSegmentRead, Comment, CommentRead
 )
 from database import get_db
 from src.meeting_insights.task_extractor import TaskExtractor
@@ -143,8 +144,15 @@ def _safe_filename(filename: str) -> str:
 
 def _save_audio_file(meeting_id: int, file: UploadFile) -> Path:
     suffix = Path(file.filename or "audio.wav").suffix or ".wav"
-    stored_name = f"meeting_{meeting_id}_{uuid.uuid4().hex}{suffix}"
+    stored_name = f"meeting_{meeting_id}_latest{suffix}"
     dest_path = AUDIO_UPLOAD_DIR / _safe_filename(stored_name)
+
+    # 清理同会议历史音频，确保“上传新文件=覆盖旧文件”
+    for stale_file in AUDIO_UPLOAD_DIR.glob(f"meeting_{meeting_id}_latest.*"):
+        try:
+            stale_file.unlink(missing_ok=True)
+        except Exception as exc:
+            logger.warning(f"清理旧音频文件失败 {stale_file}: {exc}")
 
     with open(dest_path, "wb") as output:
         while True:
@@ -343,10 +351,17 @@ def _generate_summary_payload(transcript_text: str, duration: Optional[float]) -
 
     llm_config = _build_llm_config()
     summarizer = MeetingSummarizer({"llm": llm_config} if llm_config else {})
-    summary_data = summarizer.generate_summary(transcript_text, duration or 0.0)
+
+    # 明确禁用LLM时，直接走提取式降级，避免环境变量触发远程模型调用。
+    if not llm_config:
+        summary_data = summarizer._fallback_extractive_summary(transcript_text)
+        summary_data["summary_type"] = "extractive"
+    else:
+        summary_data = summarizer.generate_summary(transcript_text, duration or 0.0)
     summary_data["summary"] = str(summary_data.get("summary", "") or "").strip()
     summary_data["executive_summary"] = str(summary_data.get("executive_summary", "") or "").strip()
     summary_data["decisions"] = [str(item).strip() for item in summary_data.get("decisions", []) if str(item).strip()]
+    summary_data["open_issues"] = [str(item).strip() for item in summary_data.get("open_issues", []) if str(item).strip()]
     summary_data["key_topics"] = _sanitize_key_topics(summary_data.get("key_topics", []), max_topics=5)
     if not summary_data["key_topics"]:
         summary_data["key_topics"] = _fallback_topics_from_text(transcript_text, max_topics=5)
@@ -374,7 +389,13 @@ def _extract_action_items(transcript_text: str) -> list[dict]:
         "我们", "你们", "他们", "公司", "大家", "这个", "那个", "这里", "那边", "然后", "而且", "如果", "因为",
         "we", "you", "they", "team", "company",
     }
+    assignee_noise_markers = ("如果", "然后", "现在", "可以", "怎么", "比如", "所谓", "对啊", "有些", "们是")
     verb_hint = ("负责", "完成", "提交", "跟进", "处理", "优化", "安排", "准备", "解决", "推进", "落实")
+    task_intent_markers = ("请", "需要", "安排", "尽快", "截止", "本周", "下周", "今天", "明天", "确认", "同步")
+    conversational_noise = (
+        "的时候", "的话", "比如", "像", "怎么", "可能", "不是很好", "比较难", "也不好", "无论什么",
+        "开始负责房子", "没有给到负责", "你自己去负责", "合一些去负责", "部分人来负责", "也比较难负责", "景也不好负责",
+    )
 
     filtered: list[dict] = []
     dedup_keys: set[str] = set()
@@ -382,20 +403,60 @@ def _extract_action_items(transcript_text: str) -> list[dict]:
         description = re.sub(r"\s+", " ", str(item.get("description", "") or "")).strip()
         assignee = str(item.get("assignee", "") or "").strip()
         confidence = float(item.get("confidence", 0.0) or 0.0)
+        due_date = item.get("due_date")
+        priority = str(item.get("priority", "") or "").lower()
+
+        # 如果描述里包含“X负责Y”，先校验 X 是否像真实负责人
+        m = re.match(r"^([A-Za-z\u4e00-\u9fff]{2,10})负责", description)
+        if m:
+            owner_in_desc = m.group(1)
+            if (
+                owner_in_desc in assignee_blacklist
+                or any(marker in owner_in_desc for marker in assignee_noise_markers)
+                or not re.fullmatch(r"[A-Za-z\u4e00-\u9fff]{2,8}", owner_in_desc)
+            ):
+                continue
 
         if confidence < 0.75:
             continue
         if len(description) < 8 or len(description) > 80:
             continue
+        if any(noise in description for noise in conversational_noise):
+            continue
         if not any(v in description for v in verb_hint):
             continue
+
+        if "负责" in description:
+            # 仅保留“某人负责某任务”的结构化短句，剔除口语化叙述
+            strict_match = re.match(r"^([A-Za-z\u4e00-\u9fff]{2,8})负责([\u4e00-\u9fffA-Za-z0-9、，,\-]{2,40})$", description)
+            if not strict_match:
+                continue
+            owner_from_desc = strict_match.group(1).strip()
+            task_from_desc = strict_match.group(2).strip(" ，,")
+            if any(marker in task_from_desc for marker in ("的时候", "的话", "比如", "像", "怎么", "可能")):
+                continue
+            if not assignee:
+                assignee = owner_from_desc
         # 丢弃明显低信息密度片段（如停用词堆积）
         words = re.findall(r"[A-Za-z]{2,}|[\u4e00-\u9fff]{1,6}", description)
         if words:
             unique_ratio = len(set([w.lower() for w in words])) / len(words)
             if len(words) >= 6 and unique_ratio < 0.45:
                 continue
-        if assignee and (len(assignee) < 2 or len(assignee) > 8 or assignee in assignee_blacklist):
+        if assignee:
+            if (
+                len(assignee) < 2
+                or len(assignee) > 8
+                or assignee in assignee_blacklist
+                or not re.fullmatch(r"[A-Za-z\u4e00-\u9fff]{2,8}", assignee)
+                or any(marker in assignee for marker in assignee_noise_markers)
+            ):
+                assignee = ""
+
+        actionable_signal = bool(due_date) or bool(assignee) or any(marker in description for marker in task_intent_markers)
+        if not actionable_signal:
+            continue
+        if priority == "low" and not due_date and not assignee:
             continue
 
         # 避免把说话人标记残片当作任务正文
@@ -422,12 +483,20 @@ def _persist_action_items(db: Session, meeting_id: int, action_items: list[dict]
         db.delete(existing_task)
 
     for action_item in action_items:
+        due_date_value = action_item.get("due_date")
+        if isinstance(due_date_value, str) and due_date_value.strip():
+            try:
+                due_date_value = datetime.fromisoformat(due_date_value.replace("Z", "+00:00"))
+            except Exception:
+                due_date_value = None
         db.add(
             Task(
                 meeting_id=meeting_id,
                 title=action_item["description"][:80],
                 description=action_item["description"],
                 priority=action_item.get("priority", "medium"),
+                due_date=due_date_value,
+                assignee_name=action_item.get("assignee"),
                 extracted_from_text=action_item["description"],
                 confidence=float(action_item.get("confidence", 0.8)),
             )
@@ -441,17 +510,39 @@ def _build_speaker_stats(segments: list[TranscriptSegment]) -> dict:
         text = str(getattr(segment, "text", "") or "")
         duration = max(0.0, float(getattr(segment, "end_time", 0.0) or 0.0) - float(getattr(segment, "start_time", 0.0) or 0.0))
 
+        # 对话占比优先使用“文本单元数”：中文按字、英文按单词近似统计
+        zh_chars = re.findall(r"[\u4e00-\u9fff]", text)
+        en_words = re.findall(r"[A-Za-z0-9]+", text)
+        dialogue_units = len(zh_chars) + len(en_words)
+
         if speaker not in stats:
             stats[speaker] = {
                 "name": speaker,
                 "duration": 0.0,
                 "word_count": 0,
+                "dialogue_units": 0,
                 "segment_count": 0,
             }
 
         stats[speaker]["duration"] += duration
         stats[speaker]["word_count"] += len([token for token in re.split(r"\s+", text) if token])
+        stats[speaker]["dialogue_units"] += dialogue_units
         stats[speaker]["segment_count"] += 1
+
+    total_units = sum(float(v.get("dialogue_units", 0) or 0) for v in stats.values())
+    total_duration = sum(float(v.get("duration", 0.0) or 0.0) for v in stats.values())
+    total_segments = sum(int(v.get("segment_count", 0) or 0) for v in stats.values())
+
+    for speaker, data in stats.items():
+        if total_units > 0:
+            share = float(data.get("dialogue_units", 0) or 0) / total_units
+        elif total_duration > 0:
+            share = float(data.get("duration", 0.0) or 0.0) / total_duration
+        elif total_segments > 0:
+            share = float(data.get("segment_count", 0) or 0) / total_segments
+        else:
+            share = 0.0
+        data["percentage"] = round(share * 100, 2)
 
     return stats
 
@@ -613,8 +704,10 @@ async def get_meeting_summary(meeting_id: int, db: Session = Depends(get_db)):
 
     summary_text = (meeting.summary or "").strip()
     summary_type = (meeting.summary_type or "").strip()
+    summary_data_cache = None
     if not summary_text and transcript_text:
         summary_data = _generate_summary_payload(transcript_text, meeting.duration)
+        summary_data_cache = summary_data
         summary_text = summary_data.get("summary", "") or _summarize_extractive(transcript_text, max_sentences=4)
         summary_type = summary_data.get("summary_type", "extractive")
         meeting.summary = summary_text
@@ -662,6 +755,16 @@ async def get_meeting_summary(meeting_id: int, db: Session = Depends(get_db)):
         key_topic_details = _fallback_topics_from_text(transcript_text, max_topics=5)
         key_topics = [item["name"] for item in key_topic_details]
 
+    if summary_data_cache is None and transcript_text:
+        try:
+            summary_data_cache = _generate_summary_payload(transcript_text, meeting.duration)
+        except Exception as exc:
+            logger.warning(f"补充摘要结构化字段失败，使用默认空值: {exc}")
+            summary_data_cache = {}
+
+    decisions = [str(item).strip() for item in (summary_data_cache or {}).get("decisions", []) if str(item).strip()]
+    open_issues = [str(item).strip() for item in (summary_data_cache or {}).get("open_issues", []) if str(item).strip()]
+
     speaker_stats = _build_speaker_stats(segments)
     action_items = _extract_action_items(transcript_text) if transcript_text else []
 
@@ -673,6 +776,8 @@ async def get_meeting_summary(meeting_id: int, db: Session = Depends(get_db)):
         "summary_type": summary_type or "extractive",
         "key_topics": key_topic_details or key_topics,
         "highlights": key_topics[:3],
+        "decisions": decisions,
+        "open_issues": open_issues,
         "action_items": action_items,
         "speaker_stats": speaker_stats,
         "speaker_count": len(speaker_stats),
@@ -731,10 +836,38 @@ async def upload_meeting_audio(meeting_id: int, file: UploadFile = File(...), db
         if not meeting:
             raise HTTPException(status_code=404, detail="会议不存在")
 
+        # 覆盖上传：尽量先清理旧音频文件
+        if meeting.audio_path:
+            try:
+                old_path = Path(meeting.audio_path)
+                if old_path.exists() and old_path.is_file():
+                    old_path.unlink(missing_ok=True)
+            except Exception as exc:
+                logger.warning(f"清理会议旧音频失败 meeting_id={meeting_id}: {exc}")
+
         saved_path = _save_audio_file(meeting_id, file)
         duration = _get_audio_duration(str(saved_path))
 
+        # 上传新音频后立即清空历史分析结果，避免前端看到旧数据
+        existing_segments = db.execute(
+            select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting_id)
+        ).scalars().all()
+        for segment in existing_segments:
+            db.delete(segment)
+
+        existing_extracted_tasks = db.execute(
+            select(Task).where(Task.meeting_id == meeting_id, Task.extracted_from_text.is_not(None))
+        ).scalars().all()
+        for task in existing_extracted_tasks:
+            db.delete(task)
+
         meeting.audio_path = str(saved_path)
+        meeting.transcript_raw = None
+        meeting.transcript_formatted = None
+        meeting.summary = None
+        meeting.summary_type = None
+        meeting.key_topics = None
+        meeting.status = MeetingStatus.SCHEDULED
         if duration > 0:
             meeting.duration = duration
         meeting.updated_at = datetime.utcnow()
@@ -953,12 +1086,106 @@ async def generate_report(meeting_id: int, format: str = "json"):
 # ==================== 导出 ====================
 
 @router.get("/meetings/{meeting_id}/export")
-async def export_meeting(meeting_id: int, format: str = "json"):
+async def export_meeting(meeting_id: int, format: str = "json", db: Session = Depends(get_db)):
     """
     导出会议数据
     """
-    return {
-        "meeting_id": meeting_id,
-        "format": format,
-        "status": "exporting",
+    meeting = db.get(Meeting, meeting_id)
+    if not meeting:
+        raise HTTPException(status_code=404, detail="会议不存在")
+
+    segments = db.execute(
+        select(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting_id)
+    ).scalars().all()
+    tasks = db.execute(
+        select(Task).where(Task.meeting_id == meeting_id)
+    ).scalars().all()
+    comments = db.execute(
+        select(Comment).where(Comment.meeting_id == meeting_id)
+    ).scalars().all()
+
+    transcript_text = (meeting.transcript_formatted or meeting.transcript_raw or "").strip()
+    summary_payload = _generate_summary_payload(transcript_text, meeting.duration) if transcript_text else {}
+
+    export_data = {
+        "meeting": {
+            "id": meeting.id,
+            "title": meeting.title,
+            "description": meeting.description,
+            "status": str(meeting.status),
+            "duration": meeting.duration,
+            "participants": meeting.participants,
+            "created_at": meeting.created_at.isoformat() if meeting.created_at else None,
+            "updated_at": meeting.updated_at.isoformat() if meeting.updated_at else None,
+        },
+        "transcript": {
+            "raw": meeting.transcript_raw,
+            "formatted": meeting.transcript_formatted,
+            "segments": [TranscriptSegmentRead.model_validate(seg).model_dump() for seg in segments],
+        },
+        "summary": {
+            "summary": meeting.summary or summary_payload.get("summary"),
+            "summary_type": meeting.summary_type or summary_payload.get("summary_type", "extractive"),
+            "key_topics": summary_payload.get("key_topics", []),
+            "decisions": summary_payload.get("decisions", []),
+            "open_issues": summary_payload.get("open_issues", []),
+        },
+        "tasks": [TaskRead.model_validate(task).model_dump(mode="json") for task in tasks],
+        "collaboration_records": [CommentRead.model_validate(comment).model_dump(mode="json") for comment in comments],
     }
+
+    export_format = str(format or "json").lower()
+    if export_format == "json":
+        return JSONResponse(content=export_data)
+
+    if export_format == "markdown":
+        md_lines = [
+            f"# 会议导出 - {meeting.title}",
+            "",
+            "## 会议信息",
+            f"- ID: {meeting.id}",
+            f"- 状态: {meeting.status}",
+            f"- 时长: {meeting.duration or ''}",
+            "",
+            "## 会议摘要",
+            str((export_data["summary"]["summary"] or "")).strip(),
+            "",
+            "## 决策项",
+        ]
+        for item in export_data["summary"]["decisions"]:
+            md_lines.append(f"- {item}")
+        md_lines.extend(["", "## 未解决问题"])
+        for item in export_data["summary"]["open_issues"]:
+            md_lines.append(f"- {item}")
+        md_lines.extend(["", "## 行动项"])
+        for task in export_data["tasks"]:
+            md_lines.append(f"- [{task.get('status')}] {task.get('title')}")
+        md_lines.extend(["", "## 协作记录"])
+        for comment in export_data["collaboration_records"]:
+            md_lines.append(f"- {comment.get('content')}")
+        return PlainTextResponse(content="\n".join(md_lines), media_type="text/markdown; charset=utf-8")
+
+    if export_format == "html":
+        summary_text = str((export_data["summary"]["summary"] or "")).strip()
+        html = f"""
+<!DOCTYPE html>
+<html lang=\"zh-CN\"> 
+<head><meta charset=\"utf-8\"><title>会议导出 - {meeting.title}</title></head>
+<body>
+  <h1>会议导出 - {meeting.title}</h1>
+  <h2>会议摘要</h2>
+  <p>{summary_text}</p>
+  <h2>决策项</h2>
+  <ul>{''.join(f'<li>{d}</li>' for d in export_data['summary']['decisions'])}</ul>
+  <h2>未解决问题</h2>
+  <ul>{''.join(f'<li>{i}</li>' for i in export_data['summary']['open_issues'])}</ul>
+  <h2>任务列表</h2>
+  <ul>{''.join(f"<li>{t.get('title')}</li>" for t in export_data['tasks'])}</ul>
+  <h2>协作记录</h2>
+  <ul>{''.join(f"<li>{c.get('content')}</li>" for c in export_data['collaboration_records'])}</ul>
+</body>
+</html>
+"""
+        return HTMLResponse(content=html)
+
+    raise HTTPException(status_code=400, detail="不支持的导出格式，支持 json/markdown/html")

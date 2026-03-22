@@ -90,6 +90,11 @@ export const taskAPI = {
   completeTask(taskId) {
     return client.patch(`/tasks/${taskId}/complete`)
   },
+
+  // 获取任务提醒概览
+  getReminders(params = {}) {
+    return client.get('/tasks/reminders/overview', { params })
+  },
 }
 
 // ==================== 用户相关API ====================

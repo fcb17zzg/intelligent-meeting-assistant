@@ -34,7 +34,25 @@
         <h4>🎯 关键议题</h4>
         <ul class="topics-list">
           <li v-for="(topic, index) in displayedSummary.key_topics" :key="index">
-            {{ topic }}
+            {{ typeof topic === 'string' ? topic : (topic.name || '') }}
+          </li>
+        </ul>
+      </div>
+
+      <div v-if="displayedSummary.decisions && displayedSummary.decisions.length" class="summary-section">
+        <h4>📌 决策项</h4>
+        <ul class="topics-list">
+          <li v-for="(decision, index) in displayedSummary.decisions" :key="`decision-${index}`">
+            {{ decision }}
+          </li>
+        </ul>
+      </div>
+
+      <div v-if="displayedSummary.open_issues && displayedSummary.open_issues.length" class="summary-section">
+        <h4>❓ 未解决问题</h4>
+        <ul class="topics-list">
+          <li v-for="(issue, index) in displayedSummary.open_issues" :key="`issue-${index}`">
+            {{ issue }}
           </li>
         </ul>
       </div>
@@ -62,7 +80,7 @@
         <div class="action-items-list">
           <div v-for="(item, index) in displayedSummary.action_items" :key="index" class="action-item">
             <el-checkbox v-model="item.completed" @change="updateActionItem(item)">
-              {{ item.text }}
+              {{ item.text || item.description }}
             </el-checkbox>
             <span v-if="item.assignee" class="assignee">(负责人: {{ item.assignee }})</span>
             <span v-if="item.due_date" class="due-date">期限: {{ formatDate(item.due_date) }}</span>
@@ -86,6 +104,7 @@
             <el-progress
               :percentage="calculatePercentage(count, displayedSummary.speaker_stats)"
               :color="getProgressColor(count, displayedSummary.speaker_stats)"
+              :format="formatSpeakerPercentage"
               :show-text="true"
             />
           </div>
@@ -174,6 +193,14 @@ const displayedSummary = computed(() => {
         ...remote,
         summary_text: remote.summary_text || remote.summary || '',
         title: remote.title || '会议摘要',
+        action_items: Array.isArray(remote.action_items)
+          ? remote.action_items
+              .map((item) => ({
+                ...item,
+                text: String(item?.text || item?.description || '').trim(),
+              }))
+              .filter((item) => item.text)
+          : [],
       }
     : null
 
@@ -189,9 +216,13 @@ const displayedSummary = computed(() => {
   )
 
   if (localHasContent) {
+    const remoteHasActionItems = Array.isArray(normalizedRemote?.action_items) && normalizedRemote.action_items.length > 0
+    const remoteHasSpeakerStats = normalizedRemote?.speaker_stats && Object.keys(normalizedRemote.speaker_stats).length > 0
     return {
       ...(normalizedRemote || {}),
       ...local,
+      action_items: remoteHasActionItems ? normalizedRemote.action_items : (local.action_items || []),
+      speaker_stats: remoteHasSpeakerStats ? normalizedRemote.speaker_stats : (local.speaker_stats || {}),
     }
   }
 
@@ -299,10 +330,37 @@ watch(
   { immediate: true }
 )
 
-const calculatePercentage = (count, stats) => {
-  const total = Object.values(stats).reduce((a, b) => a + b, 0)
-  return Math.round((count / total) * 100)
+const toSpeakerMetric = (value) => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (value && typeof value === 'object') {
+    const percentage = Number(value.percentage)
+    const dialogueUnits = Number(value.dialogue_units)
+    const wordCount = Number(value.word_count)
+    const duration = Number(value.duration)
+    const segmentCount = Number(value.segment_count)
+    if (Number.isFinite(percentage) && percentage > 0) return percentage
+    if (Number.isFinite(dialogueUnits) && dialogueUnits > 0) return dialogueUnits
+    if (Number.isFinite(wordCount) && wordCount > 0) return wordCount
+    if (Number.isFinite(duration) && duration > 0) return duration
+    if (Number.isFinite(segmentCount) && segmentCount > 0) return segmentCount
+  }
+  return 0
 }
+
+const calculatePercentage = (count, stats) => {
+  if (count && typeof count === 'object') {
+    const backendPercentage = Number(count.percentage)
+    if (Number.isFinite(backendPercentage) && backendPercentage >= 0) {
+      return Number(backendPercentage.toFixed(2))
+    }
+  }
+  const current = toSpeakerMetric(count)
+  const total = Object.values(stats || {}).reduce((sum, item) => sum + toSpeakerMetric(item), 0)
+  if (!total || total <= 0) return 0
+  return Number(((current / total) * 100).toFixed(2))
+}
+
+const formatSpeakerPercentage = (percentage) => `${Number(percentage || 0).toFixed(2)}%`
 
 const getProgressColor = (value, stats) => {
   const percentage = calculatePercentage(value, stats)
@@ -352,7 +410,7 @@ const generateSummaryText = () => {
   if (s.action_items && s.action_items.length) {
     text += `行动项\n${'-'.repeat(30)}\n`
     s.action_items.forEach((item) => {
-      text += `${item.completed ? '✓' : '○'} ${item.text}`
+      text += `${item.completed ? '✓' : '○'} ${item.text || item.description || ''}`
       if (item.assignee) text += ` (${item.assignee})`
       if (item.due_date) text += ` [${formatDate(item.due_date)}]`
       text += '\n'

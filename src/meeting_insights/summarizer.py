@@ -61,6 +61,7 @@ JSON 字段定义：
 - "executive_summary": 50-120 字的管理层摘要，突出结果与风险。
 - "key_topics": 列表。每项包含 "name"(议题名) 与 "keywords"(2-6 个关键词)。
 - "decisions": 列表。只包含已明确达成的决定。
+- "open_issues": 列表。只包含尚未达成结论、需后续跟进的问题。
 - "sentiment_overall": -1 到 1 的数值。
 
 输出示例：
@@ -72,6 +73,7 @@ JSON 字段定义：
         {{"name": "测试安排", "keywords": ["用例", "回归", "截止时间"]}}
     ],
     "decisions": ["本周五前完成接口联调", "下周一启动回归测试"],
+    "open_issues": ["联调环境稳定性仍需验证", "测试资源分配仍需确认"],
     "sentiment_overall": 0.2
 }}"""
     
@@ -140,6 +142,7 @@ JSON 字段定义：
             "executive_summary": "",
             "key_topics": [],
             "decisions": [],
+            "open_issues": [],
             "sentiment_overall": 0.0,
             "summary_type": "abstractive",
         }
@@ -152,6 +155,11 @@ JSON 字段定义：
         default_result["decisions"] = [
             self._to_simplified_chinese(str(item).strip())
             for item in default_result.get("decisions", [])
+            if str(item).strip()
+        ]
+        default_result["open_issues"] = [
+            self._to_simplified_chinese(str(item).strip())
+            for item in default_result.get("open_issues", [])
             if str(item).strip()
         ]
 
@@ -222,6 +230,7 @@ JSON 字段定义：
         sentences = self._split_sentences(cleaned_text)
         topics = self._fallback_key_topics(cleaned_text)
         decisions = self._fallback_decisions(sentences)
+        open_issues = self._fallback_open_issues(sentences)
         actions = self._fallback_action_items(sentences)
 
         summary_parts = []
@@ -250,6 +259,7 @@ JSON 字段定义：
             "executive_summary": executive_summary or summary,
             "key_topics": topics,
             "decisions": decisions,
+            "open_issues": open_issues,
             "sentiment_overall": 0.0,
             "summary_type": "extractive",
         }
@@ -347,6 +357,19 @@ JSON 字段定义：
             if any(marker in cleaned for marker in decision_markers):
                 decisions.append(self._shorten_text(cleaned, 70))
         return decisions[:4]
+
+    def _fallback_open_issues(self, sentences: List[str]) -> List[str]:
+        issue_markers = ["待确认", "未确定", "尚未", "还需要", "风险", "问题", "阻塞", "卡点", "争议"]
+        open_issues: List[str] = []
+        for sentence in sentences:
+            cleaned = sentence.strip()
+            if not cleaned:
+                continue
+            if len(cleaned) < 8 or len(cleaned) > 90:
+                continue
+            if any(marker in cleaned for marker in issue_markers):
+                open_issues.append(self._shorten_text(cleaned, 70))
+        return open_issues[:5]
 
     def _fallback_action_items(self, sentences: List[str]) -> List[str]:
         actions: List[str] = []

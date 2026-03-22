@@ -225,6 +225,7 @@ class Task(TaskBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     meeting_id: int = Field(foreign_key="meetings.id")
     assignee_id: Optional[int] = Field(foreign_key="users.id")
+    assignee_name: Optional[str] = None  # 手工维护的负责人姓名（无用户ID时使用）
     status: TaskStatus = Field(default=TaskStatus.PENDING)
     extracted_from_text: Optional[str] = None  # 从转录中提取的原文本
     confidence: float = Field(default=0.8, ge=0.0, le=1.0)
@@ -242,6 +243,7 @@ class TaskCreate(TaskBase):
     """创建任务请求"""
     meeting_id: int
     assignee_id: Optional[int] = None
+    assignee_name: Optional[str] = None
 
 
 class TaskUpdate(SQLModel):
@@ -252,6 +254,7 @@ class TaskUpdate(SQLModel):
     due_date: Optional[datetime] = None
     priority: Optional[TaskPriority] = None
     assignee_id: Optional[int] = None
+    assignee_name: Optional[str] = None
 
 
 class TaskRead(TaskBase):
@@ -260,6 +263,7 @@ class TaskRead(TaskBase):
     meeting_id: int
     status: TaskStatus
     assignee_id: Optional[int]
+    assignee_name: Optional[str]
     confidence: float
     created_at: datetime
     updated_at: datetime

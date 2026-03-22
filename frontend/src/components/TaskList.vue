@@ -98,8 +98,8 @@
         </div>
 
         <div class="task-meta">
-          <span v-if="task.assignee" class="meta-item">
-            👤 {{ task.assignee }}
+          <span v-if="task.assignee_name || task.assignee" class="meta-item">
+            👤 {{ task.assignee_name || task.assignee }}
           </span>
           <span v-if="task.due_date" class="meta-item" :class="getDueDateClass(task.due_date)">
             📅 {{ formatDate(task.due_date) }}

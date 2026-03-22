@@ -28,7 +28,17 @@ class TaskExtractor:
         name = str(assignee).strip()
         if len(name) < 2 or len(name) > 8:
             return False
-        return name not in {"我们", "你们", "他们", "公司", "大家", "这个", "那个", "项目", "团队"}
+        blacklist = {
+            "我们", "你们", "他们", "公司", "大家", "这个", "那个", "项目", "团队",
+            "也是因为", "我不给你", "是怎么", "是怎麽", "没有给到", "给你自己", "是自己",
+        }
+        if name in blacklist:
+            return False
+        if any(marker in name for marker in ["因为", "怎么", "怎麽", "然后", "如果", "可以", "自己"]):
+            return False
+        if not re.fullmatch(r"[A-Za-z\u4e00-\u9fa5]{2,8}", name):
+            return False
+        return True
 
     def _build_task_description(self, pattern_index: int, match) -> str:
         if pattern_index == 0:
