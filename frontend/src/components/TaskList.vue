@@ -82,14 +82,17 @@
     <div v-if="filteredTasks.length > 0" class="tasks-grid">
       <div v-for="task in filteredTasks" :key="task.id" class="task-card">
         <div class="task-header">
-          <el-checkbox v-model="task.completed" @change="toggleTask(task)">
-            <span class="task-title" :class="{ completed: task.completed }">
-              {{ task.title }}
-            </span>
-          </el-checkbox>
+          <span class="task-title" :class="{ completed: task.completed }">
+            {{ task.title }}
+          </span>
 
-          <div v-if="task.priority" class="priority-badge" :class="task.priority">
-            {{ getPriorityLabel(task.priority) }}
+          <div class="task-header-right">
+            <el-tag :type="task.completed ? 'success' : 'info'" size="small">
+              {{ task.completed ? '已完成' : '进行中' }}
+            </el-tag>
+            <div v-if="task.priority" class="priority-badge" :class="task.priority">
+              {{ getPriorityLabel(task.priority) }}
+            </div>
           </div>
         </div>
 
@@ -110,6 +113,14 @@
         </div>
 
         <div class="task-actions">
+          <el-button
+            text
+            type="success"
+            size="small"
+            @click="toggleTask(task)"
+          >
+            {{ task.completed ? '撤销完成' : '完成' }}
+          </el-button>
           <el-button text type="primary" size="small" @click="editTask(task)">
             编辑
           </el-button>
@@ -153,6 +164,7 @@
           <el-date-picker
             v-model="editingTask.due_date"
             type="datetime"
+            format="YYYY年MM月DD日 HH:mm"
             placeholder="选择截止时间"
           />
         </el-form-item>
@@ -247,7 +259,10 @@ const getFilterLabel = () => {
 }
 
 const toggleTask = (task) => {
-  emit('complete-task', task)
+  emit('complete-task', {
+    ...task,
+    completed: !task.completed,
+  })
 }
 
 const editTask = (task) => {
@@ -358,6 +373,12 @@ const deleteTask = (taskId) => {
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 16px;
   margin-bottom: 24px;
+}
+
+.task-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .task-card {

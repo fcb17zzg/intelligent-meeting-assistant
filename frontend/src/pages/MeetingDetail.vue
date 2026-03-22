@@ -123,7 +123,7 @@
           @refresh="loadSummary(true)"
           @update-notes="updateSummaryNotes"
           @update-action-item="upsertActionItemFromSummary"
-          @add-action-item="addActionItemToTask"
+          @add-action-items="openBatchAddTaskDialog"
         />
       </el-card>
 
@@ -209,6 +209,61 @@
         <el-button type="primary" @click="saveEdit">保存</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="batchAddDialogVisible" title="批量加入任务系统" width="680px">
+      <div v-if="batchAddTaskItems.length === 0">
+        <el-empty description="暂无可添加行动项" />
+      </div>
+      <div v-else class="batch-add-list">
+        <div v-for="(item, index) in batchAddTaskItems" :key="`batch-${index}`" class="batch-add-item">
+          <el-form label-width="88px">
+            <el-form-item label="任务标题">
+              <el-input v-model="item.title" placeholder="请输入任务标题" />
+            </el-form-item>
+            <el-form-item label="任务描述">
+              <el-input v-model="item.description" type="textarea" rows="2" />
+            </el-form-item>
+            <el-row :gutter="12">
+              <el-col :xs="24" :md="8">
+                <el-form-item label="负责人">
+                  <el-input v-model="item.assignee_name" placeholder="可留空" clearable />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="8">
+                <el-form-item label="截止日期">
+                  <el-date-picker
+                    v-model="item.due_date"
+                    type="datetime"
+                    placeholder="可留空"
+                    format="YYYY年MM月DD日 HH:mm"
+                    value-format="YYYY-MM-DDTHH:mm:ss"
+                    clearable
+                    style="width: 100%"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="8">
+                <el-form-item label="优先级">
+                  <el-select v-model="item.priority" style="width: 100%">
+                    <el-option label="紧急" value="urgent" />
+                    <el-option label="高" value="high" />
+                    <el-option label="中" value="medium" />
+                    <el-option label="低" value="low" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+            </el-row>
+          </el-form>
+        </div>
+      </div>
+
+      <template #footer>
+        <el-button @click="batchAddDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="batchAdding" @click="confirmBatchAddTasks">
+          确认添加
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -239,6 +294,9 @@ const summaryLoading = ref(false)
 const transcriptionData = ref(null)
 const visualizationResults = ref(null)
 const vizLoading = ref(false)
+const batchAddDialogVisible = ref(false)
+const batchAddTaskItems = ref([])
+const batchAdding = ref(false)
 const reminderOverview = ref({
   due_soon_count: 0,
   overdue_count: 0,
@@ -603,8 +661,52 @@ const upsertActionItemFromSummary = async (item) => {
   }
 }
 
-const addActionItemToTask = async (item) => {
-  await upsertActionItemFromSummary(item)
+const openBatchAddTaskDialog = (items) => {
+  const source = Array.isArray(items) ? items : []
+  if (!source.length) {
+    ElMessage.warning('请先选择行动项')
+    return
+  }
+
+  batchAddTaskItems.value = source.map((item, index) => ({
+    title: String(item?.title || '').trim() || `任务${index + 1}`,
+    description: String(item?.description || item?.text || '').trim(),
+    assignee_name: item?.assignee ? String(item.assignee).trim() : '',
+    due_date: item?.due_date || null,
+    priority: item?.priority || 'medium',
+  }))
+  batchAddDialogVisible.value = true
+}
+
+const confirmBatchAddTasks = async () => {
+  const validItems = batchAddTaskItems.value.filter((item) => String(item.description || '').trim())
+  if (!validItems.length) {
+    ElMessage.warning('至少需要一个有效行动项')
+    return
+  }
+
+  batchAdding.value = true
+  try {
+    for (const item of validItems) {
+      const title = String(item.title || '').trim() || '任务'
+      await taskAPI.createTask({
+        meeting_id: Number(meetingId),
+        title,
+        description: String(item.description || '').trim(),
+        assignee_name: String(item.assignee_name || '').trim() || null,
+        due_date: item.due_date || null,
+        priority: item.priority || 'medium',
+      })
+    }
+    ElMessage.success(`已添加 ${validItems.length} 项任务`)
+    batchAddDialogVisible.value = false
+    batchAddTaskItems.value = []
+    await Promise.all([loadTasks(), loadSummary(false, false)])
+  } catch (error) {
+    ElMessage.error('批量添加任务失败')
+  } finally {
+    batchAdding.value = false
+  }
 }
 
 const back = () => {

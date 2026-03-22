@@ -76,18 +76,34 @@
         v-if="displayedSummary.action_items && displayedSummary.action_items.length"
         class="summary-section"
       >
-        <h4>✅ 行动项</h4>
+        <div class="action-items-header">
+          <h4>✅ 行动项</h4>
+          <div class="action-items-toolbar">
+            <el-button text type="primary" size="small" @click="toggleSelectAllActionItems">
+              {{ isAllActionItemsSelected ? '取消全选' : '全选' }}
+            </el-button>
+            <el-button
+              type="success"
+              size="small"
+              :disabled="selectedActionItemKeys.length === 0"
+              @click="addSelectedActionItemsToTasks"
+            >
+              加入任务系统（{{ selectedActionItemKeys.length }}）
+            </el-button>
+          </div>
+        </div>
         <div class="action-items-list">
           <div v-for="(item, index) in displayedSummary.action_items" :key="index" class="action-item">
-            <el-checkbox v-model="item.completed" @change="updateActionItem(item)">
-              {{ item.text || item.description }}
-            </el-checkbox>
+            <div class="action-item-main">
+              <el-checkbox
+                :model-value="selectedActionItemKeys.includes(getActionItemKey(item, index))"
+                @change="(checked) => toggleActionItemSelection(item, index, checked)"
+              />
+              <span class="action-item-text">{{ item.text || item.description }}</span>
+            </div>
             <span class="assignee">负责人: {{ item.assignee || '' }}</span>
             <span class="due-date">期限: {{ item.due_date ? formatDate(item.due_date) : '' }}</span>
             <div class="action-item-actions">
-              <el-button text type="success" size="small" @click="addActionItemToTask(item)">
-                加入任务
-              </el-button>
               <el-button text type="primary" size="small" @click="openActionItemEditor(item)">
                 编辑
               </el-button>
@@ -169,6 +185,7 @@
           <el-date-picker
             v-model="editingActionItem.due_date"
             type="datetime"
+            format="YYYY年MM月DD日 HH:mm"
             placeholder="可留空，后续补充"
             value-format="YYYY-MM-DDTHH:mm:ss"
             clearable
@@ -211,13 +228,14 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['update-notes', 'refresh', 'update-action-item', 'add-action-item'])
+const emit = defineEmits(['update-notes', 'refresh', 'update-action-item', 'add-action-items'])
 
 const editingNotes = ref(false)
 const localLoading = ref(false)
 const localSummary = ref(null)
 const editableNotes = ref('')
 const actionItemDialogVisible = ref(false)
+const selectedActionItemKeys = ref([])
 const editingActionItem = ref({
   id: null,
   description: '',
@@ -527,16 +545,66 @@ const openActionItemEditor = (item) => {
   actionItemDialogVisible.value = true
 }
 
-const addActionItemToTask = (item) => {
-  const description = String(item?.description || item?.text || '').trim()
-  if (!description) {
-    ElMessage.warning('行动项描述为空，无法加入任务')
+const getActionItemKey = (item, index) => String(item?.id || `tmp-${index}`)
+
+const getSelectedActionItems = () => {
+  const source = Array.isArray(displayedSummary.value?.action_items)
+    ? displayedSummary.value.action_items
+    : []
+  return source
+    .map((item, index) => ({ item, key: getActionItemKey(item, index), index }))
+    .filter((entry) => selectedActionItemKeys.value.includes(entry.key))
+    .map((entry) => {
+      const description = String(entry.item?.description || entry.item?.text || '').trim()
+      return {
+        ...entry.item,
+        description,
+      }
+    })
+    .filter((item) => item.description)
+}
+
+const toggleActionItemSelection = (item, index, checked) => {
+  const key = getActionItemKey(item, index)
+  if (checked) {
+    if (!selectedActionItemKeys.value.includes(key)) {
+      selectedActionItemKeys.value = [...selectedActionItemKeys.value, key]
+    }
     return
   }
-  emit('add-action-item', {
-    ...item,
-    description,
-  })
+  selectedActionItemKeys.value = selectedActionItemKeys.value.filter((k) => k !== key)
+}
+
+const isAllActionItemsSelected = computed(() => {
+  const actionItems = Array.isArray(displayedSummary.value?.action_items)
+    ? displayedSummary.value.action_items
+    : []
+  if (!actionItems.length) return false
+  return selectedActionItemKeys.value.length === actionItems.length
+})
+
+const toggleSelectAllActionItems = () => {
+  const actionItems = Array.isArray(displayedSummary.value?.action_items)
+    ? displayedSummary.value.action_items
+    : []
+  if (!actionItems.length) {
+    selectedActionItemKeys.value = []
+    return
+  }
+  if (isAllActionItemsSelected.value) {
+    selectedActionItemKeys.value = []
+    return
+  }
+  selectedActionItemKeys.value = actionItems.map((item, index) => getActionItemKey(item, index))
+}
+
+const addSelectedActionItemsToTasks = () => {
+  const selectedItems = getSelectedActionItems()
+  if (!selectedItems.length) {
+    ElMessage.warning('请先选择至少一个行动项')
+    return
+  }
+  emit('add-action-items', selectedItems)
 }
 
 const saveActionItemEdit = () => {
@@ -616,6 +684,20 @@ const saveSummaryToBackend = async (summary) => {
     }
   }
 
+  .action-items-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+
+    .action-items-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+  }
+
   .summary-text {
     background-color: #f5f7fa;
     padding: 16px;
@@ -672,6 +754,17 @@ const saveSummaryToBackend = async (summary) => {
       display: flex;
       flex-direction: column;
       gap: 4px;
+
+      .action-item-main {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .action-item-text {
+        color: #303133;
+        line-height: 1.6;
+      }
 
       :deep(.el-checkbox) {
         margin-bottom: 4px;
