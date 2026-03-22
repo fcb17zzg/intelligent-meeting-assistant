@@ -17,6 +17,21 @@
         <el-button type="primary" @click="$router.push('/meetings/create')">
           ➕ 新建会议
         </el-button>
+        <el-button v-if="!isBatchMode" @click="toggleBatchMode">
+          多选
+        </el-button>
+        <template v-else>
+          <el-button @click="toggleBatchMode">
+            取消多选
+          </el-button>
+          <el-button
+            type="danger"
+            :disabled="selectedMeetingIds.length === 0"
+            @click="batchDeleteMeetings"
+          >
+            批量删除（{{ selectedMeetingIds.length }}）
+          </el-button>
+        </template>
       </div>
     </div>
 
@@ -72,9 +87,19 @@
       <el-col v-for="meeting in filteredMeetings" :key="meeting.id" :xs="24" :sm="12" :md="8">
         <el-card
           class="meeting-card"
+          :class="{ 'batch-mode': isBatchMode, 'is-selected': isMeetingSelected(meeting.id) }"
           shadow="hover"
-          @click="$router.push(`/meetings/${meeting.id}`)"
+          @click="handleCardClick(meeting.id)"
         >
+          <div v-if="isBatchMode" class="select-indicator" @click.stop>
+            <el-checkbox
+              :model-value="isMeetingSelected(meeting.id)"
+              @change="(checked) => toggleMeetingSelection(meeting.id, checked)"
+            >
+              选择
+            </el-checkbox>
+          </div>
+
           <!-- 卡片标题和状态 -->
           <div class="card-header">
             <h3 class="meeting-title">{{ meeting.title }}</h3>
@@ -117,7 +142,13 @@
             <el-button text type="primary" size="small" @click.stop="viewDetail(meeting.id)">
               📖 查看详情
             </el-button>
-            <el-button text type="danger" size="small" @click.stop="deleteMeeting(meeting.id)">
+            <el-button
+              v-if="!isBatchMode"
+              text
+              type="danger"
+              size="small"
+              @click.stop="deleteMeeting(meeting.id)"
+            >
               🗑️ 删除
             </el-button>
           </div>
@@ -155,6 +186,8 @@ import { useRouter } from 'vue-router'
 const meetingStore = useMeetingStore()
 const router = useRouter()
 const searchText = ref('')
+const isBatchMode = ref(false)
+const selectedMeetingIds = ref([])
 
 const filteredMeetings = computed(() => {
   if (!searchText.value) {
@@ -219,6 +252,37 @@ const viewDetail = (meetingId) => {
   router.push(`/meetings/${meetingId}`)
 }
 
+const isMeetingSelected = (meetingId) => {
+  return selectedMeetingIds.value.includes(Number(meetingId))
+}
+
+const toggleMeetingSelection = (meetingId, checked) => {
+  const normalizedId = Number(meetingId)
+  if (checked) {
+    if (!selectedMeetingIds.value.includes(normalizedId)) {
+      selectedMeetingIds.value.push(normalizedId)
+    }
+  } else {
+    selectedMeetingIds.value = selectedMeetingIds.value.filter((id) => id !== normalizedId)
+  }
+}
+
+const handleCardClick = (meetingId) => {
+  if (!isBatchMode.value) {
+    router.push(`/meetings/${meetingId}`)
+    return
+  }
+  const selected = isMeetingSelected(meetingId)
+  toggleMeetingSelection(meetingId, !selected)
+}
+
+const toggleBatchMode = () => {
+  isBatchMode.value = !isBatchMode.value
+  if (!isBatchMode.value) {
+    selectedMeetingIds.value = []
+  }
+}
+
 const deleteMeeting = (meetingId) => {
   const meeting = meetingStore.meetings.find((m) => m.id === meetingId)
   ElMessageBox.confirm(`确定删除会议"${meeting?.title}"?`, '提示', {
@@ -232,6 +296,29 @@ const deleteMeeting = (meetingId) => {
         ElMessage.success('会议已删除')
       } catch (error) {
         ElMessage.error('删除失败：' + error)
+      }
+    })
+    .catch(() => {})
+}
+
+const batchDeleteMeetings = () => {
+  if (selectedMeetingIds.value.length === 0) {
+    return
+  }
+
+  ElMessageBox.confirm(`确定批量删除 ${selectedMeetingIds.value.length} 个会议吗？`, '提示', {
+    confirmButtonText: '确定',
+    cancelButtonText: '取消',
+    type: 'warning',
+  })
+    .then(async () => {
+      try {
+        await meetingStore.deleteMeetings(selectedMeetingIds.value)
+        ElMessage.success(`已删除 ${selectedMeetingIds.value.length} 个会议`)
+        selectedMeetingIds.value = []
+        isBatchMode.value = false
+      } catch (error) {
+        ElMessage.error('批量删除失败：' + error)
       }
     })
     .catch(() => {})
@@ -396,6 +483,19 @@ onMounted(() => {
       padding-top: 12px;
       border-top: 1px solid #f0f0f0;
       margin-top: auto;
+    }
+
+    &.batch-mode {
+      cursor: pointer;
+    }
+
+    &.is-selected {
+      border: 1px solid #409eff;
+      box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.15);
+    }
+
+    .select-indicator {
+      margin-bottom: 8px;
     }
   }
 }

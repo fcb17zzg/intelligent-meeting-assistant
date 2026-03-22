@@ -140,6 +140,40 @@ export const useMeetingStore = defineStore('meeting', () => {
     }
   }
 
+  const deleteMeetings = async (meetingIds = []) => {
+    loading.value = true
+    error.value = null
+    try {
+      const normalizedIds = Array.from(
+        new Set((meetingIds || []).map((id) => Number(id)).filter((id) => !Number.isNaN(id)))
+      )
+
+      for (const id of normalizedIds) {
+        await meetingAPI.deleteMeeting(id)
+      }
+
+      if (currentMeeting.value && normalizedIds.includes(Number(currentMeeting.value.id))) {
+        currentMeeting.value = null
+      }
+
+      const response = await meetingAPI.getMeetings()
+      const payload = response.data || response
+      if (Array.isArray(payload)) {
+        meetings.value = payload
+      } else if (payload && Array.isArray(payload.meetings)) {
+        meetings.value = payload.meetings
+      } else {
+        meetings.value = []
+      }
+    } catch (err) {
+      error.value = err.message || '批量删除会议失败'
+      console.error('Batch delete meetings error:', err)
+      throw err
+    } finally {
+      loading.value = false
+    }
+  }
+
   const uploadAudio = async (meetingId, file) => {
     loading.value = true
     error.value = null
@@ -208,6 +242,7 @@ export const useMeetingStore = defineStore('meeting', () => {
     createMeeting,
     updateMeeting,
     deleteMeeting,
+    deleteMeetings,
     uploadAudio,
     transcribeMeeting,
     getSummary,
