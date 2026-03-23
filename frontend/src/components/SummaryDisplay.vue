@@ -34,6 +34,50 @@
             :rows="6"
             placeholder="请输入会议纪要..."
           />
+          <div class="list-editor-block">
+            <div class="list-editor-header">
+              <h5>🎯 关键议题</h5>
+              <el-button size="small" @click="addKeyTopic">新增议题</el-button>
+            </div>
+            <div v-if="editableKeyTopics.length" class="list-editor-items">
+              <div
+                v-for="(topic, index) in editableKeyTopics"
+                :key="`topic-edit-${index}`"
+                class="list-editor-item"
+              >
+                <el-input
+                  v-model="editableKeyTopics[index]"
+                  placeholder="请输入关键议题"
+                  clearable
+                />
+                <el-button text type="danger" @click="removeKeyTopic(index)">删除</el-button>
+              </div>
+            </div>
+            <p v-else class="list-editor-empty">暂无关键议题，点击“新增议题”添加</p>
+          </div>
+
+          <div class="list-editor-block">
+            <div class="list-editor-header">
+              <h5>⭐ 重点突出</h5>
+              <el-button size="small" @click="addHighlight">新增重点</el-button>
+            </div>
+            <div v-if="editableHighlights.length" class="list-editor-items">
+              <div
+                v-for="(highlight, index) in editableHighlights"
+                :key="`highlight-edit-${index}`"
+                class="list-editor-item"
+              >
+                <el-input
+                  v-model="editableHighlights[index]"
+                  placeholder="请输入重点内容"
+                  clearable
+                />
+                <el-button text type="danger" @click="removeHighlight(index)">删除</el-button>
+              </div>
+            </div>
+            <p v-else class="list-editor-empty">暂无重点突出，点击“新增重点”添加</p>
+          </div>
+
           <div class="summary-edit-actions">
             <el-button @click="cancelEditSummary">取消</el-button>
             <el-button type="primary" @click="saveSummaryText">保存摘要</el-button>
@@ -259,6 +303,8 @@ const localLoading = ref(false)
 const localSummary = ref(null)
 const editableNotes = ref('')
 const editableSummaryText = ref('')
+const editableKeyTopics = ref([])
+const editableHighlights = ref([])
 const actionItemDialogVisible = ref(false)
 const selectedActionItemKeys = ref([])
 const editingActionItem = ref({
@@ -500,7 +546,16 @@ const generateSummaryText = () => {
 
   if (s.key_topics && s.key_topics.length) {
     text += `关键议题\n${'-'.repeat(30)}\n`
-    s.key_topics.forEach((t) => (text += `• ${t}\n`))
+    s.key_topics.forEach((t) => {
+      const topicText = typeof t === 'string' ? t : String(t?.name || '').trim()
+      if (topicText) text += `• ${topicText}\n`
+    })
+    text += '\n'
+  }
+
+  if (s.highlights && s.highlights.length) {
+    text += `重点突出\n${'-'.repeat(30)}\n`
+    s.highlights.forEach((h) => (text += `• ${h}\n`))
     text += '\n'
   }
 
@@ -534,6 +589,36 @@ const ensureLocalSummary = () => {
   }
 }
 
+const normalizeTextList = (source, options = {}) => {
+  if (!Array.isArray(source)) return []
+
+  const { topicMode = false } = options
+  return source
+    .map((item) => {
+      if (topicMode && item && typeof item === 'object') {
+        return String(item?.name || '').trim()
+      }
+      return String(item || '').trim()
+    })
+    .filter((item) => item)
+}
+
+const addKeyTopic = () => {
+  editableKeyTopics.value = [...editableKeyTopics.value, '']
+}
+
+const removeKeyTopic = (index) => {
+  editableKeyTopics.value = editableKeyTopics.value.filter((_, idx) => idx !== index)
+}
+
+const addHighlight = () => {
+  editableHighlights.value = [...editableHighlights.value, '']
+}
+
+const removeHighlight = (index) => {
+  editableHighlights.value = editableHighlights.value.filter((_, idx) => idx !== index)
+}
+
 const startEditNotes = () => {
   editableNotes.value = displayedSummary.value?.notes || ''
   editingNotes.value = true
@@ -541,24 +626,35 @@ const startEditNotes = () => {
 
 const startEditSummary = () => {
   editableSummaryText.value = displayedSummary.value?.summary_text || displayedSummary.value?.summary || ''
+  editableKeyTopics.value = normalizeTextList(displayedSummary.value?.key_topics, { topicMode: true })
+  editableHighlights.value = normalizeTextList(displayedSummary.value?.highlights)
   editingSummary.value = true
 }
 
 const cancelEditSummary = () => {
   editableSummaryText.value = displayedSummary.value?.summary_text || displayedSummary.value?.summary || ''
+  editableKeyTopics.value = normalizeTextList(displayedSummary.value?.key_topics, { topicMode: true })
+  editableHighlights.value = normalizeTextList(displayedSummary.value?.highlights)
   editingSummary.value = false
 }
 
 const saveSummaryText = async () => {
   const summaryText = String(editableSummaryText.value || '').trim()
+  const keyTopics = normalizeTextList(editableKeyTopics.value)
+  const highlights = normalizeTextList(editableHighlights.value)
+
   ensureLocalSummary()
   localSummary.value.summary_text = summaryText
   localSummary.value.summary = summaryText
+  localSummary.value.key_topics = keyTopics
+  localSummary.value.highlights = highlights
 
   try {
     await emit('update-summary', {
       summary_text: summaryText,
       summary: summaryText,
+      key_topics: keyTopics,
+      highlights,
     })
     ElMessage.success('会议摘要已保存')
     editingSummary.value = false
@@ -887,6 +983,46 @@ const saveSummaryToBackend = async (summary) => {
 
   .summary-edit {
     width: 100%;
+
+    .list-editor-block {
+      margin-top: 16px;
+      padding: 12px;
+      border: 1px solid #ebeef5;
+      border-radius: 6px;
+      background-color: #fafafa;
+
+      .list-editor-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+
+        h5 {
+          margin: 0;
+          font-size: 14px;
+          color: #303133;
+        }
+      }
+
+      .list-editor-items {
+        display: grid;
+        gap: 8px;
+      }
+
+      .list-editor-item {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .list-editor-empty {
+        margin: 0;
+        color: #909399;
+        font-size: 13px;
+      }
+    }
 
     .summary-edit-actions {
       margin-top: 12px;

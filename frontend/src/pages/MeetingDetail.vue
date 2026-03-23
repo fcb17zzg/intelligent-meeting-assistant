@@ -610,8 +610,28 @@ const updateSummaryNotes = (notes) => {
 
 const updateSummaryContent = async (payload) => {
   const summaryText = String(payload?.summary_text || payload?.summary || '').trim()
+  const keyTopics = Array.isArray(payload?.key_topics)
+    ? payload.key_topics
+        .map((topic) => {
+          if (topic && typeof topic === 'object') {
+            return String(topic?.name || '').trim()
+          }
+          return String(topic || '').trim()
+        })
+        .filter((topic) => topic)
+    : []
+  const highlights = Array.isArray(payload?.highlights)
+    ? payload.highlights
+        .map((highlight) => String(highlight || '').trim())
+        .filter((highlight) => highlight)
+    : []
+  const mergedTopics = [...highlights, ...keyTopics].filter(
+    (topic, index, arr) => arr.indexOf(topic) === index
+  )
+
   await meetingStore.updateMeeting(meetingId, {
     summary: summaryText,
+    key_topics: JSON.stringify(mergedTopics),
   })
 
   if (summary.value) {
@@ -619,6 +639,8 @@ const updateSummaryContent = async (payload) => {
       ...summary.value,
       summary_text: summaryText,
       summary: summaryText,
+      key_topics: mergedTopics,
+      highlights,
     }
   }
 }
@@ -809,7 +831,9 @@ onMounted(() => {
   }
 
   .detail-container {
+    width: 100%;
     max-width: 1200px;
+    margin: 0 auto;
   }
 
   .section-card {

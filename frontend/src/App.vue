@@ -2,7 +2,7 @@
   <div id="app" class="app-container">
     <!-- 头部导航 -->
     <header class="app-header">
-      <div class="container">
+      <div class="layout-container">
         <div class="header-content">
           <div class="logo">
             <h1>🎤 智能会议助手</h1>
@@ -18,14 +18,14 @@
 
     <!-- 主容容器 -->
     <main class="app-main">
-      <div class="container">
+      <div class="layout-container">
         <RouterView />
       </div>
     </main>
 
     <!-- 页脚 -->
     <footer class="app-footer">
-      <div class="container">
+      <div class="layout-container">
         <p>&copy; 2024 智能会议助手系统。保留所有权利。</p>
       </div>
     </footer>
@@ -95,6 +95,12 @@ import { RouterLink, RouterView } from 'vue-router'
   padding: 40px 0;
 }
 
+.layout-container {
+  width: 100%;
+  margin: 0;
+  padding: 0 24px;
+}
+
 .app-footer {
   background-color: #25252b;
   color: #999;
@@ -126,6 +132,10 @@ import { RouterLink, RouterView } from 'vue-router'
 
   .app-main {
     padding: 20px 0;
+  }
+
+  .layout-container {
+    padding: 0 12px;
   }
 }
 </style>
