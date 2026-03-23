@@ -135,7 +135,7 @@
         <div class="action-items-header">
           <h4>✅ 行动项</h4>
           <div class="action-items-toolbar">
-            <el-button text type="primary" size="small" @click="toggleSelectAllActionItems">
+            <el-button text type="primary" size="small" class="action-select-btn" @click="toggleSelectAllActionItems">
               {{ isAllActionItemsSelected ? '取消全选' : '全选' }}
             </el-button>
             <el-button
@@ -168,7 +168,7 @@
             <span class="assignee">负责人: {{ item.assignee || '' }}</span>
             <span class="due-date">期限: {{ item.due_date ? formatDate(item.due_date) : '' }}</span>
             <div class="action-item-actions">
-              <el-button text type="primary" size="small" @click="openActionItemEditor(item)">
+              <el-button text type="primary" size="small" class="action-edit-btn" @click="openActionItemEditor(item)">
                 编辑
               </el-button>
             </div>
@@ -853,6 +853,11 @@ const saveSummaryToBackend = async (summary) => {
       align-items: center;
       gap: 8px;
       flex-wrap: wrap;
+
+      :deep(.action-select-btn) {
+        --el-button-text-color: #ffffff;
+        color: #ffffff;
+      }
     }
   }
 
@@ -939,6 +944,11 @@ const saveSummaryToBackend = async (summary) => {
         display: flex;
         gap: 8px;
         margin-left: 20px;
+
+        :deep(.action-edit-btn) {
+          --el-button-text-color: #ffffff;
+          color: #ffffff;
+        }
       }
     }
   }

@@ -6,7 +6,6 @@
       <div class="layout-container">
         <div class="header-content">
           <div class="logo">
-            <div class="logo-icon-wrap">🎤</div>
             <div class="logo-text">
               <h1>智能会议助手</h1>
               <span class="logo-sub">Meeting Intelligence Studio</span>
@@ -15,7 +14,7 @@
           <nav class="nav-menu">
             <RouterLink to="/dashboard" class="nav-item">任务主页</RouterLink>
             <RouterLink to="/meetings" class="nav-item">会议管理</RouterLink>
-            <a href="#" class="nav-item">帮助</a>
+            <RouterLink to="/help" class="nav-item">帮助</RouterLink>
           </nav>
 
           <div v-if="authStore.isAuthenticated" class="user-info">
@@ -112,18 +111,6 @@ const userInitial = computed(() => {
       align-items: center;
       gap: 12px;
       min-width: 260px;
-
-      .logo-icon-wrap {
-        width: 40px;
-        height: 40px;
-        border-radius: 12px;
-        display: grid;
-        place-items: center;
-        font-size: 20px;
-        background: rgba(255, 255, 255, 0.22);
-        border: 1px solid rgba(255, 255, 255, 0.4);
-        box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.24);
-      }
 
       .logo-text {
         h1 {

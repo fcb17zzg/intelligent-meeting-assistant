@@ -4,6 +4,7 @@ import MeetingList from '@/pages/MeetingList.vue'
 import MeetingDetail from '@/pages/MeetingDetail.vue'
 import CreateMeeting from '@/pages/CreateMeeting.vue'
 import TaskDashboard from '@/pages/TaskDashboard.vue'
+import HelpCenter from '@/pages/HelpCenter.vue'
 import Login from '@/pages/Login.vue'
 import Register from '@/pages/Register.vue'
 
@@ -47,6 +48,12 @@ const routes = [
     name: 'MeetingDetail',
     component: MeetingDetail,
     props: true,
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/help',
+    name: 'HelpCenter',
+    component: HelpCenter,
     meta: { requiresAuth: true },
   },
 ]

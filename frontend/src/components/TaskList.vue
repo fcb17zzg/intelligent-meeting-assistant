@@ -121,7 +121,7 @@
           >
             {{ task.completed ? '撤销完成' : '完成' }}
           </el-button>
-          <el-button text type="primary" size="small" @click="editTask(task)">
+          <el-button text type="primary" size="small" class="task-edit-btn" @click="editTask(task)">
             编辑
           </el-button>
           <el-button text type="danger" size="small" @click="deleteTask(task.id)">
@@ -480,6 +480,11 @@ const deleteTask = (taskId) => {
     gap: 8px;
     padding-top: 12px;
     border-top: 1px solid #f0f0f0;
+
+    :deep(.task-edit-btn) {
+      --el-button-text-color: #ffffff;
+      color: #ffffff;
+    }
   }
 }
 

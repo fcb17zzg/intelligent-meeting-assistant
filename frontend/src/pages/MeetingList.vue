@@ -154,7 +154,7 @@
 
           <!-- 快速操作 -->
           <div class="card-actions">
-            <el-button text type="primary" size="small" @click.stop="viewDetail(meeting.id)">
+            <el-button text type="primary" size="small" class="detail-btn" @click.stop="viewDetail(meeting.id)">
               📖 查看详情
             </el-button>
             <el-button
@@ -595,6 +595,11 @@ onMounted(() => {
       padding-top: 12px;
       border-top: 1px solid rgba(120, 132, 198, 0.14);
       margin-top: auto;
+
+      :deep(.detail-btn) {
+        --el-button-text-color: #ffffff;
+        color: #ffffff;
+      }
     }
 
     &.batch-mode {
