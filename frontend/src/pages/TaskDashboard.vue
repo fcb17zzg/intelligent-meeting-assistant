@@ -609,4 +609,93 @@ onMounted(async () => {
     }
   }
 }
+
+.task-dashboard {
+  .page-header {
+    border-radius: 18px;
+    padding: 18px 20px;
+    background: linear-gradient(120deg, rgba(102, 126, 234, 0.14), rgba(79, 172, 254, 0.15));
+    border: 1px solid rgba(136, 153, 240, 0.25);
+
+    h1 {
+      background: var(--grad-primary);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+  }
+
+  .panel-title {
+    position: relative;
+    padding-left: 12px;
+
+    &::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 2px;
+      bottom: 2px;
+      width: 4px;
+      border-radius: 99px;
+      background: var(--grad-primary);
+    }
+  }
+
+  .urgent-item {
+    transition: var(--transition-base);
+
+    &:hover {
+      box-shadow: 0 0 16px rgba(245, 87, 108, 0.4);
+      transform: translateX(4px);
+      border-left-color: #f5576c;
+    }
+  }
+
+  .action-item-row {
+    border-left-color: #2bc770;
+    transition: var(--transition-base);
+
+    &:hover {
+      box-shadow: 0 0 16px rgba(67, 233, 123, 0.34);
+      border-color: rgba(67, 233, 123, 0.45);
+    }
+  }
+
+  .reminder-columns {
+    h4 {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+
+      &::before {
+        content: '';
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+      }
+    }
+
+    > div:first-child h4::before {
+      background: #f5576c;
+    }
+
+    > div:last-child h4::before {
+      background: #fa8231;
+    }
+
+    .reminder-item {
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.56);
+      background: rgba(255, 255, 255, 0.62);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      transition: var(--transition-base);
+
+      &:hover {
+        background: rgba(255, 255, 255, 0.95);
+      }
+    }
+  }
+}
 </style>
+

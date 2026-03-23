@@ -877,4 +877,89 @@ onMounted(() => {
     }
   }
 }
+
+.meeting-detail {
+  .back-btn {
+    border-radius: 999px;
+    border: 1px solid rgba(102, 126, 234, 0.4);
+    background: rgba(255, 255, 255, 0.82);
+    box-shadow: 0 10px 20px rgba(102, 126, 234, 0.16);
+    transition: var(--transition-base);
+
+    &:hover {
+      transform: translateX(-4px);
+      border-color: rgba(118, 75, 162, 0.55);
+      box-shadow: 0 14px 24px rgba(102, 126, 234, 0.24);
+    }
+  }
+
+  .section-card {
+    position: relative;
+    overflow: hidden;
+    border-radius: 18px;
+    border: var(--glass-border);
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+
+    &::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 4px;
+      background: var(--grad-primary);
+    }
+
+    &:nth-of-type(1)::before {
+      background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
+    }
+
+    &:nth-of-type(2)::before {
+      background: linear-gradient(180deg, #fa8231 0%, #f7b731 100%);
+    }
+
+    &:nth-of-type(3)::before {
+      background: linear-gradient(180deg, #4facfe 0%, #00f2fe 100%);
+    }
+
+    &:nth-of-type(4)::before {
+      background: linear-gradient(180deg, #f093fb 0%, #f5576c 100%);
+    }
+
+    &:nth-of-type(5)::before {
+      background: linear-gradient(180deg, #ff758c 0%, #ff7eb3 100%);
+    }
+  }
+
+  :deep(.el-alert--success) {
+    border: none;
+    background: linear-gradient(135deg, rgba(67, 233, 123, 0.24), rgba(56, 249, 215, 0.2));
+  }
+
+  :deep(.el-alert--error) {
+    border: none;
+    background: linear-gradient(135deg, rgba(245, 87, 108, 0.22), rgba(240, 147, 251, 0.2));
+  }
+
+  :deep(.el-alert--warning) {
+    border: none;
+    background: linear-gradient(135deg, rgba(250, 130, 49, 0.22), rgba(247, 183, 49, 0.2));
+  }
+
+  .batch-add-item {
+    border-radius: 14px;
+    border: 1px solid rgba(149, 162, 230, 0.25);
+    background: linear-gradient(145deg, rgba(255, 255, 255, 0.84), rgba(241, 244, 255, 0.88));
+    transition: var(--transition-base);
+
+    &:hover {
+      border-color: rgba(112, 129, 230, 0.4);
+      box-shadow: 0 16px 28px rgba(102, 126, 234, 0.16);
+      transform: translateY(-2px);
+    }
+  }
+}
 </style>
+

@@ -2,18 +2,23 @@
   <div class="meeting-list">
     <!-- 页面标题和操作 -->
     <div class="page-header">
-      <h1>📋 会议管理</h1>
+      <div class="page-title-wrap">
+        <h1>会议管理中心</h1>
+        <span class="page-title-badge">Command Room</span>
+      </div>
       <div class="header-actions">
-        <el-input
-          v-model="searchText"
-          placeholder="搜索会议..."
-          clearable
-          style="width: 250px"
-        >
-          <template #prefix>
-            <el-icon><Search /></el-icon>
-          </template>
-        </el-input>
+        <div class="search-wrap">
+          <el-input
+            v-model="searchText"
+            placeholder="搜索会议..."
+            clearable
+            style="width: 250px"
+          >
+            <template #prefix>
+              <el-icon><Search /></el-icon>
+            </template>
+          </el-input>
+        </div>
         <el-button type="primary" @click="$router.push('/meetings/create')">
           ➕ 新建会议
         </el-button>
@@ -37,33 +42,37 @@
 
     <!-- 统计卡片 -->
     <el-row :gutter="20" class="stats-row">
-      <el-col :xs="24" :sm="12" :md="6">
+      <el-col :xs="24" :sm="12" :md="6" class="stat-col-1">
         <el-card shadow="hover">
           <div class="stat-card">
+            <div class="stat-icon">📊</div>
             <div class="stat-value">{{ meetingStore.totalMeetings }}</div>
             <div class="stat-label">总会议</div>
           </div>
         </el-card>
       </el-col>
-      <el-col :xs="24" :sm="12" :md="6">
+      <el-col :xs="24" :sm="12" :md="6" class="stat-col-2">
         <el-card shadow="hover">
           <div class="stat-card">
+            <div class="stat-icon">⏳</div>
             <div class="stat-value">{{ meetingStore.pendingMeetings.length }}</div>
             <div class="stat-label">待处理</div>
           </div>
         </el-card>
       </el-col>
-      <el-col :xs="24" :sm="12" :md="6">
+      <el-col :xs="24" :sm="12" :md="6" class="stat-col-3">
         <el-card shadow="hover">
           <div class="stat-card">
+            <div class="stat-icon">✅</div>
             <div class="stat-value">{{ meetingStore.completedMeetings.length }}</div>
             <div class="stat-label">已完成</div>
           </div>
         </el-card>
       </el-col>
-      <el-col :xs="24" :sm="12" :md="6">
+      <el-col :xs="24" :sm="12" :md="6" class="stat-col-4">
         <el-card shadow="hover">
           <div class="stat-card">
+            <div class="stat-icon">🚀</div>
             <div class="stat-value progress">
               {{
                 meetingStore.totalMeetings > 0
@@ -87,7 +96,13 @@
       <el-col v-for="meeting in filteredMeetings" :key="meeting.id" :xs="24" :sm="12" :md="8">
         <el-card
           class="meeting-card"
-          :class="{ 'batch-mode': isBatchMode, 'is-selected': isMeetingSelected(meeting.id) }"
+          :class="[
+            {
+              'batch-mode': isBatchMode,
+              'is-selected': isMeetingSelected(meeting.id)
+            },
+            getMeetingCardStatusClass(meeting.status)
+          ]"
           shadow="hover"
           @click="handleCardClick(meeting.id)"
         >
@@ -234,6 +249,14 @@ const getMeetingStatusType = (status) => {
   return map[normalizedStatus] || 'info'
 }
 
+const getMeetingCardStatusClass = (status) => {
+  const normalizedStatus = normalizeMeetingStatus(status)
+  if (normalizedStatus === 'completed') return 'status-completed'
+  if (normalizedStatus === 'in_progress') return 'status-in-progress'
+  if (normalizedStatus === 'archived') return 'status-archived'
+  return 'status-scheduled'
+}
+
 const getMeetingProgress = (meeting) => {
   const status = normalizeMeetingStatus(meeting.status)
   if (status === 'completed') return 100
@@ -324,7 +347,6 @@ const batchDeleteMeetings = () => {
     .catch(() => {})
 }
 
-// 页面加载时获取会议列表
 onMounted(() => {
   meetingStore.fetchMeetings()
 })
@@ -332,20 +354,44 @@ onMounted(() => {
 
 <style scoped lang="scss">
 .meeting-list {
-  padding: 20px 0;
+  padding: 16px 0;
+  animation: fadeInUp 0.5s ease;
 
   .page-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 30px;
+    margin-bottom: 28px;
     gap: 20px;
 
-    h1 {
-      margin: 0;
-      font-size: 28px;
-      color: #303133;
-      min-width: 200px;
+    .page-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+
+      h1 {
+        margin: 0;
+        min-width: 220px;
+        font-size: 30px;
+        line-height: 1.1;
+        font-weight: 800;
+        background: var(--grad-primary);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+
+      .page-title-badge {
+        border-radius: 999px;
+        padding: 6px 12px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        color: #4e5ebc;
+        background: rgba(102, 126, 234, 0.14);
+        border: 1px solid rgba(102, 126, 234, 0.2);
+      }
     }
 
     .header-actions {
@@ -354,39 +400,77 @@ onMounted(() => {
       flex-wrap: wrap;
       justify-content: flex-end;
       flex: 1;
+
+      .search-wrap {
+        border-radius: 999px;
+        padding: 4px;
+        background: linear-gradient(130deg, rgba(102, 126, 234, 0.2), rgba(79, 172, 254, 0.18));
+      }
     }
   }
 
   .stats-row {
     margin-bottom: 30px;
 
-    :deep(.el-card) {
-      cursor: pointer;
-      transition: all 0.3s;
+    > [class*='stat-col-'] {
+      animation: fadeInScale 0.45s ease both;
+    }
 
-      &:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.15) !important;
+    .stat-col-1 { animation-delay: 0s; }
+    .stat-col-2 { animation-delay: 0.1s; }
+    .stat-col-3 { animation-delay: 0.2s; }
+    .stat-col-4 { animation-delay: 0.3s; }
+
+    :deep(.el-card) {
+      border: none;
+      overflow: hidden;
+      color: #fff;
+
+      .el-card__body {
+        position: relative;
+        z-index: 1;
+      }
+
+      &::before {
+        content: '';
+        position: absolute;
+        top: -44px;
+        right: -32px;
+        width: 108px;
+        height: 108px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.2);
       }
     }
 
+    .stat-col-1 :deep(.el-card) { background: var(--grad-stat-1) !important; }
+    .stat-col-2 :deep(.el-card) { background: var(--grad-stat-2) !important; }
+    .stat-col-3 :deep(.el-card) { background: var(--grad-stat-3) !important; }
+    .stat-col-4 :deep(.el-card) { background: var(--grad-stat-4) !important; }
+
     .stat-card {
-      text-align: center;
+      text-align: left;
+
+      .stat-icon {
+        font-size: 18px;
+        margin-bottom: 8px;
+        opacity: 0.95;
+      }
 
       .stat-value {
-        font-size: 32px;
-        font-weight: 700;
-        color: #409eff;
+        font-size: 34px;
+        font-weight: 800;
         margin-bottom: 8px;
+        animation: countUp 0.45s ease;
 
         &.progress {
-          color: #67c23a;
+          color: #fff;
         }
       }
 
       .stat-label {
-        font-size: 14px;
-        color: #909399;
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.88);
       }
     }
   }
@@ -397,18 +481,46 @@ onMounted(() => {
 
   .meeting-card {
     cursor: pointer;
-    transition: all 0.3s ease;
+    transition: var(--transition-base);
     height: 100%;
     display: flex;
     flex-direction: column;
+    position: relative;
+    overflow: hidden;
+
+    &::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+      background: #7a87d7;
+    }
+
+    &.status-completed::before {
+      background: linear-gradient(180deg, #43e97b 0%, #2cd3b4 100%);
+    }
+
+    &.status-in-progress::before {
+      background: linear-gradient(180deg, #f6d365 0%, #fda085 100%);
+    }
+
+    &.status-archived::before {
+      background: linear-gradient(180deg, #f093fb 0%, #f5576c 100%);
+    }
+
+    &.status-scheduled::before {
+      background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
+    }
 
     &:hover {
-      box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.15);
-      transform: translateY(-4px);
+      box-shadow: 0 20px 44px rgba(102, 126, 234, 0.28);
+      transform: translateY(-6px) scale(1.01);
 
       :deep(.card-header) {
         .meeting-title {
-          color: #409eff;
+          color: #5568d8;
         }
       }
     }
@@ -430,7 +542,7 @@ onMounted(() => {
       .meeting-title {
         margin: 0;
         font-size: 16px;
-        font-weight: 600;
+        font-weight: 700;
         color: #303133;
         transition: color 0.3s;
         flex: 1;
@@ -445,7 +557,7 @@ onMounted(() => {
     .meeting-description {
       margin: 0 0 12px;
       font-size: 13px;
-      color: #606266;
+      color: #5f6580;
       line-height: 1.5;
       display: -webkit-box;
       -webkit-line-clamp: 2;
@@ -481,7 +593,7 @@ onMounted(() => {
       display: flex;
       gap: 8px;
       padding-top: 12px;
-      border-top: 1px solid #f0f0f0;
+      border-top: 1px solid rgba(120, 132, 198, 0.14);
       margin-top: auto;
     }
 
@@ -490,8 +602,8 @@ onMounted(() => {
     }
 
     &.is-selected {
-      border: 1px solid #409eff;
-      box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.15);
+      border: 1px solid #667eea;
+      box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
     }
 
     .select-indicator {
@@ -506,12 +618,21 @@ onMounted(() => {
       flex-direction: column;
       align-items: stretch;
 
-      h1 {
-        margin-bottom: 12px;
+      .page-title-wrap {
+        justify-content: space-between;
+
+        h1 {
+          min-width: unset;
+          font-size: 24px;
+        }
       }
 
       .header-actions {
         justify-content: stretch;
+
+        .search-wrap {
+          width: 100%;
+        }
 
         :deep(input) {
           width: 100% !important;

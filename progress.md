@@ -250,3 +250,60 @@
 2. 提供已验证可用的模型名（当前网关下 `gpt-4o-mini` 不可用，已验证候选存在异常响应）
 3. 再补 1 段真实会议样本并复测，完成双样本摘要质量验收对比
 4. 完成后进入“摘要质量精修 + 生产参数固化”阶段
+
+## 前端 UI 改造推进记录（2026-03-23）
+
+### 目标来源
+- 依据 prd.md 的 Glassmorphism + 紫蓝渐变方案，对 4 个核心页面和全局样式进行统一升级。
+
+### 里程碑拆解
+1. 全局设计系统（frontend/src/styles/main.scss）
+2. 顶部导航升级（frontend/src/App.vue）
+3. 会议列表页重构（frontend/src/pages/MeetingList.vue）
+4. 会议详情页样式增强（frontend/src/pages/MeetingDetail.vue）
+5. 任务管理页样式增强（frontend/src/pages/TaskDashboard.vue）
+6. 构建与人工验收（功能回归 + 响应式）
+
+### 已执行
+- [x] 已重写全局 main.scss：
+  - 新增渐变/毛玻璃/阴影变量体系。
+  - 覆盖 Element Plus 主色、按钮、卡片、Tag、输入框、弹窗、进度条样式。
+  - 新增 countUp/fadeInUp/fadeInScale 动画。
+- [x] 已升级 App.vue：
+  - Logo 区域拆分为图标块 + 标题 + 英文副标题。
+  - 导航激活态改为下划线动画。
+  - 新增 header 底部光线与顶部光晕层。
+  - 接入 useAuthStore，登录态显示头像与用户名。
+- [x] 已升级 MeetingList.vue：
+  - 标题改为渐变文字 + 英文 badge。
+  - 搜索框增加胶囊包裹层 search-wrap。
+  - 4 组统计卡片接入差异化渐变与入场延迟动画。
+  - 统计卡片新增 emoji 图标。
+  - 会议卡片增加状态类（status-completed / status-in-progress / status-archived）。
+  - 卡片 hover 增强为抬升 + 缩放 + 发光。
+- [x] 已追加 MeetingDetail.vue 样式：
+  - back-btn 胶囊描边与左移 hover。
+  - section-card 玻璃态与左侧 4px 渐变色条。
+  - success/error/warning alert 渐变半透明背景。
+  - batch-add-item 渐变与 hover 发光。
+- [x] 已追加 TaskDashboard.vue 样式：
+  - page-header 渐变横幅与标题渐变字。
+  - panel-title 左侧渐变竖条。
+  - urgent-item 红色发光 hover。
+  - action-item-row 绿色边框与发光 hover。
+  - reminder 区域补充逾期/即将到期颜色圆点与玻璃态卡片。
+
+### 待执行（下一步）
+- [x] 已完成 npm run build 构建校验（通过，存在 Sass 旧 API 与大包体积 warning）。
+- [ ] 运行 npm run dev 并进行功能回归。
+- [ ] 浏览器人工验收：
+  - 顶栏视觉与导航激活动效。
+  - 会议列表统计卡和卡片状态条。
+  - 详情页 section 色条与提醒色彩。
+  - 任务页紧急项与提醒区 hover 反馈。
+- [ ] 移动端 768px 以下适配检查与细节修正。
+
+### 验收口径
+- 功能保持：搜索、新建会议、删除、批量删除、转录、任务创建流程可用。
+- 视觉达标：毛玻璃、渐变、阴影层次、状态色区分明确。
+- 响应式达标：小屏无布局错位与关键内容遮挡。
