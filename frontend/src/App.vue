@@ -17,12 +17,20 @@
             <RouterLink to="/help" class="nav-item">帮助</RouterLink>
           </nav>
 
-          <div v-if="authStore.isAuthenticated" class="user-info">
-            <el-avatar :size="34" class="user-avatar">
-              {{ userInitial }}
-            </el-avatar>
-            <span class="user-name">{{ authStore.user?.username || authStore.user?.email || '用户' }}</span>
-          </div>
+          <el-dropdown v-if="authStore.isAuthenticated" trigger="click" placement="bottom-end">
+            <div class="user-info">
+              <el-avatar :size="34" class="user-avatar">
+                {{ userInitial }}
+              </el-avatar>
+              <span class="user-name">{{ authStore.user?.username || authStore.user?.email || '用户' }}</span>
+            </div>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item @click="goToAccount">账户管理</el-dropdown-item>
+                <el-dropdown-item divided @click="handleLogout">登出</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
       </div>
     </header>
@@ -46,14 +54,27 @@
 <script setup>
 import { computed } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
+import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/authStore'
 
 const authStore = useAuthStore()
+const router = useRouter()
 
 const userInitial = computed(() => {
   const rawName = String(authStore.user?.username || authStore.user?.email || 'U')
   return rawName.charAt(0).toUpperCase()
 })
+
+const goToAccount = () => {
+  router.push('/account')
+}
+
+const handleLogout = () => {
+  authStore.logout()
+  ElMessage.success('已登出')
+  router.push('/login')
+}
 </script>
 
 <style scoped lang="scss">
@@ -181,6 +202,7 @@ const userInitial = computed(() => {
       border-radius: 999px;
       background: rgba(255, 255, 255, 0.14);
       border: 1px solid rgba(255, 255, 255, 0.28);
+      cursor: pointer;
 
       .user-avatar {
         background: rgba(255, 255, 255, 0.3);
@@ -195,6 +217,10 @@ const userInitial = computed(() => {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+      }
+
+      &:hover {
+        background: rgba(255, 255, 255, 0.2);
       }
     }
   }

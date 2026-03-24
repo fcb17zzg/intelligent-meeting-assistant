@@ -118,7 +118,7 @@
           <!-- 卡片标题和状态 -->
           <div class="card-header">
             <h3 class="meeting-title">{{ meeting.title }}</h3>
-            <el-tag :type="getMeetingStatusType(meeting.status)" effect="dark">
+            <el-tag :type="getMeetingStatusType(meeting.status)" effect="plain" :class="getMeetingTagClass(meeting.status)">
               {{ getMeetingStatusLabel(meeting.status) }}
             </el-tag>
           </div>
@@ -241,12 +241,19 @@ const getMeetingStatusLabel = (status) => {
 const getMeetingStatusType = (status) => {
   const normalizedStatus = normalizeMeetingStatus(status)
   const map = {
-    scheduled: 'info',
+    scheduled: 'primary',
     in_progress: 'warning',
     completed: 'success',
     archived: 'danger',
   }
   return map[normalizedStatus] || 'info'
+}
+
+const getMeetingTagClass = (status) => {
+  const normalizedStatus = normalizeMeetingStatus(status)
+  if (normalizedStatus === 'completed') return 'tag-completed'
+  if (normalizedStatus === 'scheduled') return 'tag-scheduled'
+  return ''
 }
 
 const getMeetingCardStatusClass = (status) => {
@@ -511,7 +518,7 @@ onMounted(() => {
     }
 
     &.status-scheduled::before {
-      background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
+      background: linear-gradient(180deg, #4f8bff 0%, #2d73ff 100%);
     }
 
     &:hover {
@@ -552,6 +559,18 @@ onMounted(() => {
       :deep(.el-tag) {
         flex-shrink: 0;
       }
+
+      :deep(.el-tag.tag-completed) {
+        color: #1f9d50;
+        border-color: rgba(31, 157, 80, 0.45);
+        background: rgba(31, 157, 80, 0.12);
+      }
+
+      :deep(.el-tag.tag-scheduled) {
+        color: #2d73ff;
+        border-color: rgba(45, 115, 255, 0.45);
+        background: rgba(45, 115, 255, 0.12);
+      }
     }
 
     .meeting-description {
@@ -561,6 +580,7 @@ onMounted(() => {
       line-height: 1.5;
       display: -webkit-box;
       -webkit-line-clamp: 2;
+      line-clamp: 2;
       -webkit-box-orient: vertical;
       overflow: hidden;
     }

@@ -4,7 +4,7 @@
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session
-from datetime import timedelta
+from datetime import timedelta, datetime
 from models import (
     User,
     UserRead,
@@ -318,10 +318,31 @@ async def update_user(
     # 不允许更改用户名
     if "username" in user_update:
         del user_update["username"]
-    
-    # 如果提供了密码，需要哈希处理
-    if "password" in user_update:
-        user_update["hashed_password"] = hash_password(user_update.pop("password"))
+
+    current_password = user_update.pop("current_password", None)
+    new_password = user_update.pop("password", None)
+
+    # 修改密码时：本人必须提供旧密码并校验通过
+    if new_password is not None:
+        if current_user.id == user_id and current_user.role != UserRole.ADMIN:
+            if not current_password:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="修改密码前请先输入旧密码"
+                )
+            if not verify_password(str(current_password), user.hashed_password):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="旧密码不正确"
+                )
+
+        if len(str(new_password)) < 6:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="新密码至少需要6位"
+            )
+
+        user.hashed_password = hash_password(str(new_password))
     
     # 只有管理员可以更改角色
     if "role" in user_update and current_user.role != UserRole.ADMIN:
@@ -329,8 +350,10 @@ async def update_user(
     
     try:
         for key, value in user_update.items():
-            if key not in ["created_at", "hashed_password"]:
+            if key not in ["created_at", "hashed_password", "id"]:
                 setattr(user, key, value)
+
+        user.updated_at = datetime.utcnow()
         
         db.add(user)
         db.commit()

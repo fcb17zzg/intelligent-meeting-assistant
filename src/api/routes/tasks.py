@@ -13,6 +13,7 @@ from database import get_db
 from models import (
     Task,
     Meeting,
+    User,
     TaskRead,
     TaskCreate,
     TaskUpdate,
@@ -20,6 +21,7 @@ from models import (
     TaskStatus,
     TaskPriority,
 )
+from src.auth.dependencies import get_current_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -77,6 +79,28 @@ def _urgent_sort_key(task: Task):
     )
 
 
+def _owned_task_query(current_user_id: int):
+    return select(Task).join(Meeting, Task.meeting_id == Meeting.id).where(Meeting.owner_id == current_user_id)
+
+
+def _get_owned_task_or_404(db: Session, task_id: int, current_user_id: int) -> Task:
+    task = db.execute(
+        _owned_task_query(current_user_id).where(Task.id == task_id)
+    ).scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return task
+
+
+def _get_owned_meeting_or_404(db: Session, meeting_id: int, current_user_id: int) -> Meeting:
+    meeting = db.execute(
+        select(Meeting).where(Meeting.id == meeting_id, Meeting.owner_id == current_user_id)
+    ).scalars().first()
+    if not meeting:
+        raise HTTPException(status_code=404, detail="会议不存在")
+    return meeting
+
+
 # ==================== 任务CRUD操作 ====================
 
 @router.get("/tasks", response_model=list[TaskRead])
@@ -88,11 +112,12 @@ async def list_tasks(
     meeting_id: Optional[int] = None,
     assignee_id: Optional[int] = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     获取任务列表
     """
-    query = select(Task)
+    query = _owned_task_query(current_user.id)
     if status:
         query = query.where(Task.status == status)
     if priority:
@@ -112,13 +137,14 @@ async def list_urgent_tasks(
     assignee_id: Optional[int] = None,
     include_completed: bool = False,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     获取最近最紧急任务：先按优先级，再按截止日期最近排序。
     """
     safe_limit = max(1, min(limit, 100))
 
-    query = select(Task)
+    query = _owned_task_query(current_user.id)
     if meeting_id:
         query = query.where(Task.meeting_id == meeting_id)
     if assignee_id:
@@ -150,21 +176,28 @@ async def list_urgent_tasks(
 
 
 @router.get("/tasks/{task_id}", response_model=TaskDetail)
-async def get_task(task_id: int, db: Session = Depends(get_db)):
+async def get_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """
     获取单个任务详情
     """
-    task = db.get(Task, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+    task = _get_owned_task_or_404(db, task_id, current_user.id)
     return _to_task_detail(task)
 
 
 @router.post("/tasks", response_model=TaskRead)
-async def create_task(task: TaskCreate, db: Session = Depends(get_db)):
+async def create_task(
+    task: TaskCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """
     创建新任务
     """
+    _get_owned_meeting_or_404(db, task.meeting_id, current_user.id)
     db_task = Task(**task.model_dump())
     db_task.updated_at = _now_utc()
     db.add(db_task)
@@ -174,13 +207,19 @@ async def create_task(task: TaskCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/tasks/{task_id}", response_model=TaskRead)
-async def update_task(task_id: int, task: TaskUpdate, db: Session = Depends(get_db)):
+async def update_task(
+    task_id: int,
+    task: TaskUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """
     更新任务（支持用户手工补全 due_date / assignee_id / status 等字段）
     """
-    db_task = db.get(Task, task_id)
-    if not db_task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+    db_task = _get_owned_task_or_404(db, task_id, current_user.id)
+
+    if task.meeting_id is not None:
+        _get_owned_meeting_or_404(db, task.meeting_id, current_user.id)
 
     update_data = task.model_dump(exclude_unset=True)
     for field_name, value in update_data.items():
@@ -199,13 +238,15 @@ async def update_task(task_id: int, task: TaskUpdate, db: Session = Depends(get_
 
 
 @router.delete("/tasks/{task_id}")
-async def delete_task(task_id: int, db: Session = Depends(get_db)):
+async def delete_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """
     删除任务
     """
-    db_task = db.get(Task, task_id)
-    if not db_task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+    db_task = _get_owned_task_or_404(db, task_id, current_user.id)
 
     db.delete(db_task)
     db.commit()
@@ -219,13 +260,12 @@ async def update_task_status(
     task_id: int,
     status: TaskStatus,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     更新任务状态
     """
-    db_task = db.get(Task, task_id)
-    if not db_task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+    db_task = _get_owned_task_or_404(db, task_id, current_user.id)
 
     db_task.status = status
     if status == TaskStatus.COMPLETED:
@@ -241,13 +281,15 @@ async def update_task_status(
 
 
 @router.patch("/tasks/{task_id}/complete", response_model=TaskRead)
-async def complete_task(task_id: int, db: Session = Depends(get_db)):
+async def complete_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """
     标记任务完成（兼容前端 completeTask 调用）
     """
-    db_task = db.get(Task, task_id)
-    if not db_task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+    db_task = _get_owned_task_or_404(db, task_id, current_user.id)
 
     db_task.status = TaskStatus.COMPLETED
     db_task.completed_at = db_task.completed_at or _now_utc()
@@ -259,13 +301,16 @@ async def complete_task(task_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/tasks/{task_id}/assign", response_model=TaskRead)
-async def assign_task(task_id: int, assignee_id: int, db: Session = Depends(get_db)):
+async def assign_task(
+    task_id: int,
+    assignee_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """
     分配任务给用户
     """
-    db_task = db.get(Task, task_id)
-    if not db_task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+    db_task = _get_owned_task_or_404(db, task_id, current_user.id)
 
     db_task.assignee_id = assignee_id
     db_task.updated_at = _now_utc()
@@ -280,13 +325,12 @@ async def update_task_priority(
     task_id: int,
     priority: TaskPriority,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     更新任务优先级
     """
-    db_task = db.get(Task, task_id)
-    if not db_task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+    db_task = _get_owned_task_or_404(db, task_id, current_user.id)
 
     db_task.priority = priority
     db_task.updated_at = _now_utc()
@@ -304,6 +348,7 @@ async def get_task_reminders_overview(
     assignee_id: Optional[int] = None,
     limit: int = 100,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     站内提醒总览：返回即将到期与已逾期任务
@@ -311,7 +356,7 @@ async def get_task_reminders_overview(
     safe_limit = max(1, min(limit, 500))
 
     # 提醒只关注“有截止日期且未完成”的任务，避免扫描大量无效记录。
-    query = select(Task).where(
+    query = _owned_task_query(current_user.id).where(
         Task.due_date.is_not(None),
         Task.status != TaskStatus.COMPLETED,
     )
@@ -347,11 +392,14 @@ async def get_task_reminders_overview(
 # ==================== 任务统计 ====================
 
 @router.get("/tasks/stats/summary")
-async def get_tasks_summary(db: Session = Depends(get_db)):
+async def get_tasks_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """
     获取任务的总体统计
     """
-    tasks = db.execute(select(Task)).scalars().all()
+    tasks = db.execute(_owned_task_query(current_user.id)).scalars().all()
     total_tasks = len(tasks)
 
     pending_tasks = len([t for t in tasks if t.status == TaskStatus.PENDING])
@@ -379,11 +427,17 @@ async def get_tasks_summary(db: Session = Depends(get_db)):
 
 
 @router.get("/tasks/stats/by-assignee/{assignee_id}")
-async def get_assignee_tasks_stats(assignee_id: int, db: Session = Depends(get_db)):
+async def get_assignee_tasks_stats(
+    assignee_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """
     获取特定用户的任务统计
     """
-    tasks = db.execute(select(Task).where(Task.assignee_id == assignee_id)).scalars().all()
+    tasks = db.execute(
+        _owned_task_query(current_user.id).where(Task.assignee_id == assignee_id)
+    ).scalars().all()
     total_assigned = len(tasks)
 
     return {
@@ -397,11 +451,18 @@ async def get_assignee_tasks_stats(assignee_id: int, db: Session = Depends(get_d
 
 
 @router.get("/tasks/stats/by-meeting/{meeting_id}")
-async def get_meeting_tasks_stats(meeting_id: int, db: Session = Depends(get_db)):
+async def get_meeting_tasks_stats(
+    meeting_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """
     获取特定会议的任务统计
     """
-    tasks = db.execute(select(Task).where(Task.meeting_id == meeting_id)).scalars().all()
+    _get_owned_meeting_or_404(db, meeting_id, current_user.id)
+    tasks = db.execute(
+        _owned_task_query(current_user.id).where(Task.meeting_id == meeting_id)
+    ).scalars().all()
     total_tasks = len(tasks)
     completed_tasks = len([t for t in tasks if t.status == TaskStatus.COMPLETED])
 
@@ -424,6 +485,7 @@ async def export_tasks(
     status: Optional[TaskStatus] = None,
     meeting_id: Optional[int] = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     导出任务列表
@@ -433,7 +495,7 @@ async def export_tasks(
     - status: 按状态筛选
     - meeting_id: 按会议筛选
     """
-    query = select(Task)
+    query = _owned_task_query(current_user.id)
     if status:
         query = query.where(Task.status == status)
     if meeting_id:
