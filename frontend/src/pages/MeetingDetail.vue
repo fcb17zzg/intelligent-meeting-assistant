@@ -137,11 +137,20 @@
 
         <div style="display:flex; gap:12px; align-items:center">
           <el-button type="primary" :loading="vizLoading" @click="generateVisualization">
-            生成可视化图表
+            生成会议报告
           </el-button>
 
-          <el-button v-if="visualizationResults" @click="() => {}">查看结果（控制台）</el-button>
-          <span v-if="visualizationResults" style="color:#909399">已生成图表数据</span>
+          <span v-if="reportResult" style="color:#909399">已生成会议报告</span>
+        </div>
+
+        <div v-if="reportResult" class="viz-result-grid">
+          <div class="viz-result-card viz-report-card">
+            <div class="viz-result-title">会议报告</div>
+            <div class="viz-result-path">{{ reportResult.description }}</div>
+            <el-button text type="primary" @click="openVisualizationReport(reportResult.url)">
+              打开 HTML
+            </el-button>
+          </div>
         </div>
 
       </el-card>
@@ -294,7 +303,7 @@ const transcribing = ref(false)
 const transcribeProgress = ref(0)
 const summaryLoading = ref(false)
 const transcriptionData = ref(null)
-const visualizationResults = ref(null)
+const reportResult = ref(null)
 const vizLoading = ref(false)
 const batchAddDialogVisible = ref(false)
 const batchAddTaskItems = ref([])
@@ -318,6 +327,13 @@ const parseKeyTopics = (raw) => {
     }
   }
   return []
+}
+
+const normalizeTopicLabel = (topic) => {
+  if (topic && typeof topic === 'object') {
+    return String(topic.name || topic.topic || topic.label || '').trim()
+  }
+  return String(topic || '').trim()
 }
 
 const buildSummaryFallback = (meetingData) => {
@@ -482,26 +498,110 @@ const loadSummary = async (refreshAnalysis = false, allowActionRetry = true) => 
 }
 
 const generateVisualization = async () => {
-  if (!summary.value && !transcriptionData.value) {
-    ElMessage.error('没有可用的洞见数据用于生成可视化')
+  if (!meeting.value && !summary.value && !transcriptionData.value) {
+    ElMessage.error('没有可用的数据用于生成会议报告')
     return
   }
 
   vizLoading.value = true
-  visualizationResults.value = null
+  reportResult.value = null
 
   try {
-    // 构造insights：优先使用 summary._nlp，如果不存在则使用 transcriptionData
-    const insights = summary.value?._nlp || { processed: transcriptionData.value } || {}
+    const sourceMeeting = meeting.value || meetingStore.currentMeeting || {}
+    const summaryData = displaySummary.value || summary.value || {}
+    const transcriptText = String(
+      meeting.value?.transcript_formatted ||
+        meeting.value?.transcript_raw ||
+        transcriptionData.value?.transcript_formatted ||
+        transcriptionData.value?.transcript_raw ||
+        ''
+    ).trim()
 
-    const res = await visualizationService.generateAllCharts(insights, Number(meetingId))
-    visualizationResults.value = res
-    ElMessage.success('可视化生成完成')
+    const summaryTopics = Array.isArray(summaryData.key_topics)
+      ? summaryData.key_topics.map((item) => normalizeTopicLabel(item)).filter((item) => item)
+      : parseKeyTopics(sourceMeeting.key_topics).map((item) => normalizeTopicLabel(item)).filter((item) => item)
+
+    const summaryHighlights = Array.isArray(summaryData.highlights)
+      ? summaryData.highlights.map((item) => String(item || '').trim()).filter((item) => item)
+      : []
+
+    const mergedTopicLabels = [...summaryTopics, ...summaryHighlights].filter(
+      (item, index, arr) => arr.indexOf(item) === index
+    )
+
+    const reportKeyTopics = mergedTopicLabels.map((label) => ({
+      name: label,
+      topic: label,
+      description: label,
+      keywords: [],
+    }))
+
+    const insights = {
+      meeting_id: Number(meetingId),
+      summary: String(summaryData.summary_text || summaryData.summary || sourceMeeting.summary || '').trim(),
+      action_items: Array.isArray(summaryData.action_items)
+        ? summaryData.action_items.map((item) => ({
+            id: item?.id,
+            task: String(item?.task || item?.description || item?.text || '').trim(),
+            description: String(item?.description || item?.text || item?.task || '').trim(),
+            assignee: item?.assignee || item?.assignee_name || '',
+            due_date: item?.due_date || null,
+            priority: item?.priority || 'medium',
+          }))
+        : [],
+      key_topics: reportKeyTopics,
+      highlights: summaryHighlights,
+      decisions: Array.isArray(summaryData.decisions) ? summaryData.decisions : [],
+      open_issues: Array.isArray(summaryData.open_issues) ? summaryData.open_issues : [],
+      transcript_excerpt: transcriptText ? transcriptText.slice(0, 1200) : '',
+      transcript_full_excerpt: transcriptText,
+    }
+
+    const meetingData = {
+      id: sourceMeeting.id,
+      title: sourceMeeting.title || '会议报告',
+      date: sourceMeeting.date || sourceMeeting.created_at || '',
+      created_at: sourceMeeting.created_at || '',
+      duration: sourceMeeting.duration || '',
+      participants: Array.isArray(sourceMeeting.participants)
+        ? sourceMeeting.participants
+        : String(sourceMeeting.participants || sourceMeeting.participants_count || '')
+            .split(',')
+            .map((item) => String(item).trim())
+            .filter(Boolean),
+      description: sourceMeeting.description || '',
+      status: sourceMeeting.status || '',
+      transcript_formatted: sourceMeeting.transcript_formatted || transcriptText,
+      transcript_raw: sourceMeeting.transcript_raw || transcriptText,
+      summary: insights.summary,
+    }
+
+    const res = await visualizationService.generateReport(
+      meetingData,
+      insights,
+      'html',
+      `会议报告_${String(meetingData.title).replace(/[\\/:*?"<>|]/g, '_')}`
+    )
+
+    reportResult.value = {
+      url: visualizationService.resolveVisualizationUrl(res?.file_url || res?.file_path),
+      description: res?.file_path ? String(res.file_path).replace(/\\/g, '/') : '已生成会议报告',
+    }
+    ElMessage.success('会议报告生成完成')
   } catch (err) {
-    ElMessage.error('可视化生成失败：' + (err.message || err))
+    ElMessage.error('会议报告生成失败：' + (err.message || err))
   } finally {
     vizLoading.value = false
   }
+}
+
+const openVisualizationReport = (url) => {
+  if (!url) {
+    ElMessage.warning('未找到可打开的图表文件')
+    return
+  }
+
+  window.open(url, '_blank', 'noopener,noreferrer')
 }
 
 const loadTasks = async () => {
@@ -866,6 +966,33 @@ onMounted(() => {
       }
     }
   }
+}
+
+.viz-result-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.viz-result-card {
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #f8fbff 0%, #eef5ff 100%);
+  border: 1px solid #dbeafe;
+}
+
+.viz-result-title {
+  font-weight: 700;
+  color: #1f2937;
+  margin-bottom: 6px;
+}
+
+.viz-result-path {
+  color: #64748b;
+  font-size: 12px;
+  margin-bottom: 10px;
+  word-break: break-all;
 }
 
 @media (max-width: 768px) {

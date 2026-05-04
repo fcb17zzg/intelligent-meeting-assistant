@@ -4,7 +4,36 @@
  */
 import client from '../api/client'
 
+const getPublicBaseUrl = () => {
+  const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+
+  try {
+    const parsed = new URL(apiBaseUrl, window.location.origin)
+    const origin = parsed.origin
+    const pathname = parsed.pathname.replace(/\/api\/?$/, '')
+    return `${origin}${pathname}`.replace(/\/$/, '')
+  } catch (_) {
+    return window.location.origin
+  }
+}
+
+const normalizeReportPath = (filePath) => {
+  const rawPath = String(filePath || '').trim()
+  if (!rawPath) return ''
+  if (/^https?:\/\//i.test(rawPath)) return rawPath
+
+  const normalized = rawPath.replace(/\\/g, '/').replace(/^.*reports\//i, '')
+  const fileName = normalized.split('/').pop()
+  if (!fileName) return ''
+
+  return `${getPublicBaseUrl()}/reports/${encodeURIComponent(fileName)}`
+}
+
 export const visualizationService = {
+  resolveVisualizationUrl(filePath) {
+    return normalizeReportPath(filePath)
+  },
+
   /**
    * 生成说话人分布饼图
    * @param {Object} insights - 会议洞见数据
@@ -114,31 +143,24 @@ export const visualizationService = {
   },
 
   /**
-   * 生成所有图表
+   * 生成会议报告
    * @param {Object} insights - 会议洞见数据
    * @param {number} meetingId - 会议ID
    * @returns {Promise}
    */
   async generateAllCharts(insights, meetingId) {
     try {
-      const results = await Promise.all([
-        this.generateSpeakerDistribution(insights),
-        this.generateActionItemsChart(insights),
-        this.generateTimeline(insights),
-        this.generateTopicsBubbleChart(insights),
-        this.generateDashboard(insights, meetingId),
-        this.generateReport({}, insights),
-      ])
+      const report = await this.generateReport(
+        { meeting_id: meetingId, title: `会议报告_${meetingId}` },
+        insights,
+        'html',
+        `会议报告_${meetingId}`
+      )
 
       return {
         status: 'success',
         charts: {
-          speakerDistribution: results[0],
-          actionItems: results[1],
-          timeline: results[2],
-          topicsBubble: results[3],
-          dashboard: results[4],
-          report: results[5],
+          report,
         },
       }
     } catch (error) {

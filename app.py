@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session
 
 from database import init_db, get_db
@@ -45,6 +46,8 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+app.mount("/reports", StaticFiles(directory="reports"), name="reports")
 
 
 # ==================== CORS配置 ====================

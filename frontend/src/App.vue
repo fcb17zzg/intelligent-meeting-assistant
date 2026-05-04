@@ -45,7 +45,7 @@
     <!-- 页脚 -->
     <footer class="app-footer">
       <div class="layout-container">
-        <p>&copy; 2024 智能会议助手系统。保留所有权利。</p>
+        <p>&copy; 2026 智能会议助手系统。保留所有权利。</p>
       </div>
     </footer>
   </div>

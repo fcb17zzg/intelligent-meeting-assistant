@@ -137,8 +137,14 @@
     </div>
 
     <!-- 编辑对话框 -->
-    <el-dialog v-model="editDialogVisible" title="编辑任务" width="500px">
-      <el-form :model="editingTask">
+    <el-dialog
+      v-model="editDialogVisible"
+      title="编辑任务"
+      fullscreen
+      append-to-body
+      class="task-edit-dialog"
+    >
+      <el-form :model="editingTask" class="task-edit-form">
         <el-form-item label="任务标题" required>
           <el-input v-model="editingTask.title" />
         </el-form-item>
@@ -491,5 +497,36 @@ const deleteTask = (taskId) => {
 .empty-state {
   padding: 60px 20px;
   text-align: center;
+}
+
+:deep(.task-edit-dialog) {
+  .el-dialog__body {
+    padding: 24px 28px 16px;
+    background: linear-gradient(180deg, rgba(248, 250, 255, 0.96) 0%, rgba(255, 255, 255, 1) 100%);
+  }
+
+  .el-dialog__header {
+    margin-right: 0;
+    padding: 20px 28px 16px;
+    border-bottom: 1px solid #ebeef5;
+    background: #fff;
+  }
+
+  .el-dialog__title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #1f2937;
+  }
+
+  .el-dialog__footer {
+    padding: 16px 28px 24px;
+    border-top: 1px solid #ebeef5;
+    background: #fff;
+  }
+}
+
+.task-edit-form {
+  max-width: 960px;
+  margin: 0 auto;
 }
 </style>
