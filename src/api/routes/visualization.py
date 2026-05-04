@@ -16,6 +16,10 @@ REPORTS_DIR = Path("./reports")
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _build_report_url(file_path: str) -> str:
+    return f"/reports/{Path(file_path).name}"
+
+
 # ==================== 图表生成 ====================
 
 @router.post("/visualization/speaker-distribution")
@@ -51,6 +55,7 @@ async def generate_speaker_distribution(
                 "status": "success",
                 "chart_type": "speaker_pie_chart",
                 "file_path": chart_path,
+                "file_url": _build_report_url(chart_path),
                 "format": output_format,
                 "created_at": datetime.utcnow().isoformat(),
             }
@@ -97,6 +102,7 @@ async def generate_action_items_chart(
                 "status": "success",
                 "chart_type": "priority_bar_chart",
                 "file_path": chart_path,
+                "file_url": _build_report_url(chart_path),
                 "format": output_format,
                 "created_at": datetime.utcnow().isoformat(),
             }
@@ -143,6 +149,7 @@ async def generate_timeline_chart(
                 "status": "success",
                 "chart_type": "timeline_chart",
                 "file_path": chart_path,
+                "file_url": _build_report_url(chart_path),
                 "format": output_format,
                 "created_at": datetime.utcnow().isoformat(),
             }
@@ -189,6 +196,7 @@ async def generate_topics_bubble_chart(
                 "status": "success",
                 "chart_type": "topic_bubble_chart",
                 "file_path": chart_path,
+                "file_url": _build_report_url(chart_path),
                 "format": output_format,
                 "created_at": datetime.utcnow().isoformat(),
             }
@@ -239,6 +247,7 @@ async def generate_dashboard(
                 "chart_type": "dashboard",
                 "meeting_id": resolved_meeting_id,
                 "file_path": dashboard_path,
+                "file_url": _build_report_url(dashboard_path),
                 "format": output_format,
                 "created_at": datetime.utcnow().isoformat(),
             }
@@ -293,6 +302,7 @@ async def generate_report(
                 "status": "success",
                 "report_type": report_format,
                 "file_path": report_path,
+                "file_url": _build_report_url(report_path),
                 "title": title or "会议报告",
                 "generated_at": datetime.utcnow().isoformat(),
             }
@@ -327,6 +337,7 @@ async def get_report(report_id: str):
             "status": "success",
             "report_id": report_id,
             "file_path": str(report_path),
+            "file_url": _build_report_url(str(report_path)),
             "size": report_path.stat().st_size,
             "created_at": datetime.fromtimestamp(report_path.stat().st_ctime).isoformat(),
         }

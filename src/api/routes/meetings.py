@@ -65,6 +65,16 @@ _EN_TOPIC_STOPWORDS = {
     "uh", "um", "yeah", "ok", "okay", "like", "just", "really", "very", "there", "here", "then",
 }
 
+_TRANSCRIPT_FILLERS = {
+    "ok", "okay", "嗯", "啊", "哦", "额", "呃", "哈", "好的", "可以", "行", "收到", "明白",
+    "听得到", "听得到吗", "喂", "是的", "对", "对的", "好", "嗯嗯",
+}
+
+_TRANSCRIPT_IMPORTANCE_MARKERS = {
+    "公司", "方案", "计划", "项目", "任务", "安排", "需要", "问题", "风险", "成本", "预算",
+    "招聘", "人员", "宿舍", "住宿", "负责", "完成", "推进", "确认", "截止", "时间", "目标",
+}
+
 
 def _is_valid_topic_name(name: str) -> bool:
     topic = str(name or "").strip(" ，,.:;:!?！？。；【】[]()（）\"")
@@ -129,6 +139,7 @@ def _sanitize_key_topics(raw_topics: list, max_topics: int = 5) -> list[dict]:
 
 
 def _fallback_topics_from_text(transcript_text: str, max_topics: int = 5) -> list[dict]:
+    transcript_text = re.sub(r"\[\s*SPEAKER_[^\]]+\]\s*", " ", transcript_text or "", flags=re.IGNORECASE)
     token_pattern = re.compile(r"[\u4e00-\u9fff]{2,8}|[A-Za-z]{4,20}")
     counts: dict[str, int] = {}
 
@@ -142,6 +153,129 @@ def _fallback_topics_from_text(transcript_text: str, max_topics: int = 5) -> lis
         if not _is_valid_topic_name(word):
             continue
         counts[word] = counts.get(word, 0) + 1
+
+    ranked = sorted(counts.items(), key=lambda item: item[1], reverse=True)
+    return [{"name": topic, "keywords": [topic]} for topic, _ in ranked[:max_topics]]
+
+
+def _is_low_value_utterance(text: str) -> bool:
+    raw = str(text or "").strip()
+    if not raw:
+        return True
+
+    normalized = re.sub(r"[\s，,。.!！？?；;:：\-]+", "", raw).lower()
+    if not normalized:
+        return True
+    if normalized in _TRANSCRIPT_FILLERS:
+        return True
+
+    if len(normalized) <= 2:
+        return True
+    if re.fullmatch(r"[a-z]{1,4}", normalized):
+        return True
+    if re.search(r"([a-z\u4e00-\u9fff])\1{3,}", normalized):
+        return True
+
+    zh_chars = re.findall(r"[\u4e00-\u9fff]", normalized)
+    if not zh_chars and len(normalized) <= 5:
+        return True
+
+    return False
+
+
+def _is_informative_utterance(text: str) -> bool:
+    raw = str(text or "").strip()
+    if not raw:
+        return False
+
+    if any(marker in raw for marker in _TRANSCRIPT_IMPORTANCE_MARKERS):
+        return True
+
+    if re.search(r"(本周|下周|今天|明天|\d{1,2}月\d{1,2}日|周[一二三四五六日天]|截止|之前)", raw):
+        return True
+
+    normalized = re.sub(r"\s+", "", raw)
+    zh_count = len(re.findall(r"[\u4e00-\u9fff]", normalized))
+    if zh_count >= 12:
+        return True
+
+    return False
+
+
+def _build_important_speaker_lines(segments: list[dict], max_lines: int = 90) -> list[str]:
+    merged_blocks: list[dict] = []
+    current_block: Optional[dict] = None
+
+    for segment in segments or []:
+        speaker = str(segment.get("speaker", "SPEAKER_00") or "SPEAKER_00")
+        text = str(segment.get("text", "") or "").strip()
+        if _is_low_value_utterance(text):
+            continue
+
+        start_time = float(segment.get("start_time", 0.0) or 0.0)
+        end_time = float(segment.get("end_time", start_time) or start_time)
+
+        if (
+            current_block
+            and current_block["speaker"] == speaker
+            and start_time - float(current_block.get("end_time", start_time)) <= 6.0
+        ):
+            current_block["texts"].append(text)
+            current_block["end_time"] = end_time
+            continue
+
+        if current_block:
+            merged_blocks.append(current_block)
+        current_block = {
+            "speaker": speaker,
+            "texts": [text],
+            "start_time": start_time,
+            "end_time": end_time,
+        }
+
+    if current_block:
+        merged_blocks.append(current_block)
+
+    if not merged_blocks:
+        fallback = []
+        for segment in segments or []:
+            speaker = str(segment.get("speaker", "SPEAKER_00") or "SPEAKER_00")
+            text = str(segment.get("text", "") or "").strip()
+            if not text:
+                continue
+            fallback.append(f"[{speaker}] {text}")
+            if len(fallback) >= min(max_lines, 20):
+                break
+        return fallback
+
+    informative_blocks = [block for block in merged_blocks if _is_informative_utterance("，".join(block.get("texts", [])))]
+    selected_blocks = informative_blocks if informative_blocks else merged_blocks
+
+    lines: list[str] = []
+    for block in selected_blocks[:max_lines]:
+        merged_text = "，".join([chunk for chunk in block["texts"] if chunk])
+        merged_text = re.sub(r"\s+", " ", merged_text).strip(" ，,")
+        if not merged_text:
+            continue
+        if len(merged_text) > 180:
+            merged_text = merged_text[:180].rstrip(" ，,") + "..."
+        lines.append(f"[{block['speaker']}] {merged_text}")
+
+    return lines
+
+
+def _fallback_topics_from_action_items(action_items: list[dict], max_topics: int = 5) -> list[dict]:
+    counts: dict[str, int] = {}
+    for item in action_items or []:
+        description = str(item.get("description", "") or "").strip()
+        for token in re.findall(r"[\u4e00-\u9fff]{2,8}|[A-Za-z]{4,20}", description):
+            word = str(token).strip()
+            if not _is_valid_topic_name(word):
+                continue
+            lowered = word.lower()
+            if word in _ZH_TOPIC_STOPWORDS or lowered in _EN_TOPIC_STOPWORDS:
+                continue
+            counts[word] = counts.get(word, 0) + 1
 
     ranked = sorted(counts.items(), key=lambda item: item[1], reverse=True)
     return [{"name": topic, "keywords": [topic]} for topic, _ in ranked[:max_topics]]
@@ -239,18 +373,10 @@ def _merge_diarization_speakers(transcription_segments: list[dict], diarization_
 
 
 def _build_formatted_transcript(segments: list[dict], fallback_text: str) -> str:
-    if not segments:
-        return fallback_text.strip()
-
-    formatted_segments = []
-    for segment in segments:
-        text = str(segment.get("text", "") or "").strip()
-        if not text:
-            continue
-        speaker = str(segment.get("speaker", "SPEAKER_00") or "SPEAKER_00")
-        formatted_segments.append(f"[{speaker}] {text}")
-
-    return "\n".join(formatted_segments).strip()
+    important_lines = _build_important_speaker_lines(segments)
+    if important_lines:
+        return "\n".join(important_lines).strip()
+    return fallback_text.strip()
 
 
 def _speaker_index_from_name(speaker: Optional[str]) -> Optional[int]:
@@ -826,8 +952,9 @@ async def get_meeting_summary(
             logger.warning(f"补充摘要结构化字段失败，使用默认空值: {exc}")
             summary_data_cache = {}
 
-    decisions = [str(item).strip() for item in (summary_data_cache or {}).get("decisions", []) if str(item).strip()]
-    open_issues = [str(item).strip() for item in (summary_data_cache or {}).get("open_issues", []) if str(item).strip()]
+    # 决策/未解决问题的自动抽取在当前数据质量下误报较多，暂时停用。
+    decisions: list[str] = []
+    open_issues: list[str] = []
 
     speaker_stats = _build_speaker_stats(segments)
     persisted_tasks = db.execute(
@@ -854,6 +981,14 @@ async def get_meeting_summary(
         except Exception as action_error:
             logger.warning(f"实时行动项抽取失败，返回空列表: {action_error}")
             action_items = []
+
+    if not key_topic_details:
+        key_topic_details = _fallback_topics_from_action_items(action_items, max_topics=5)
+        key_topics = [item["name"] for item in key_topic_details]
+
+    if not key_topic_details and summary_text:
+        key_topic_details = _fallback_topics_from_text(summary_text, max_topics=5)
+        key_topics = [item["name"] for item in key_topic_details]
 
     return {
         "meeting_id": meeting_id,

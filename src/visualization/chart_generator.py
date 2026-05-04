@@ -4,6 +4,7 @@
 """
 import os
 import json
+import html
 from typing import Dict, List, Any, Optional, Tuple
 from pathlib import Path
 import plotly.graph_objects as go
@@ -455,6 +456,58 @@ class ChartGenerator:
     def enable_interactive(self, enabled: bool):
         """启用/禁用交互功能"""
         self.interactive = enabled
+
+    def _get_chart_profile(self, filename: str) -> Dict[str, Any]:
+        chart_key = filename.lower()
+        profiles = {
+            'speaker_pie_chart': {
+                'title': '说话人贡献分布',
+                'subtitle': '快速查看会议参与结构与发言集中度',
+                'summary': '适合检查谁在主导讨论，以及是否存在发言过于集中的情况。',
+                'highlights': ['发言占比', '参与活跃度', '讨论集中度'],
+            },
+            'priority_bar_chart': {
+                'title': '行动项优先级分布',
+                'subtitle': '查看任务优先级结构，识别高压任务堆积',
+                'summary': '适合评估当前会议产出的行动项是否偏向紧急任务，帮助后续排期。',
+                'highlights': ['紧急项数量', '任务结构', '排期压力'],
+            },
+            'timeline_chart': {
+                'title': '任务时间线',
+                'subtitle': '按截止日期排序，观察任务推进节奏',
+                'summary': '适合快速发现最早到期的任务，并检查某一时间段是否堆积过多待办。',
+                'highlights': ['到期顺序', '负责人分布', '风险节点'],
+            },
+            'topic_bubble_chart': {
+                'title': '主题气泡图',
+                'subtitle': '展示会议中的关键主题及其相对权重',
+                'summary': '适合定位讨论焦点，观察哪些主题更稳定、更值得跟进。',
+                'highlights': ['主题权重', '关键词密度', '关注焦点'],
+            },
+            'meeting_dashboard': {
+                'title': '会议仪表盘',
+                'subtitle': '整合说话人、任务、主题与情感分析',
+                'summary': '适合一页概览会议全貌，快速进入分析状态。',
+                'highlights': ['综合概览', '多图联动', '关键趋势'],
+            },
+            'sentiment_gauge': {
+                'title': '会议情感倾向',
+                'subtitle': '观察讨论氛围是否偏积极、平稳或紧张',
+                'summary': '适合辅助判断会议氛围，结合主题和行动项一起看更有意义。',
+                'highlights': ['整体情绪', '风险信号', '氛围判断'],
+            },
+        }
+
+        for key, profile in profiles.items():
+            if key in chart_key:
+                return profile
+
+        return {
+            'title': filename.replace('_', ' ').title(),
+            'subtitle': '交互式可视化页面',
+            'summary': '图表已生成，可直接在浏览器中查看和缩放。',
+            'highlights': ['交互查看', '缩放', '悬浮提示'],
+        }
     
     def _save_chart(self, fig: go.Figure, filename: str, output_dir: str, 
                     format: str) -> str:
@@ -464,11 +517,175 @@ class ChartGenerator:
         
         if format == 'html':
             filepath = os.path.join(output_dir, f"{filename}.html")
-            fig.write_html(
-                filepath,
+            chart_profile = self._get_chart_profile(filename)
+            plotly_html = fig.to_html(
                 include_plotlyjs='cdn',
-                full_html=True
+                full_html=False,
+                config={
+                    'responsive': True,
+                    'displaylogo': False,
+                    'scrollZoom': True,
+                },
             )
+            highlight_cards = ''.join(
+                f'<div class="highlight-card"><span>{html.escape(str(item))}</span></div>'
+                for item in chart_profile['highlights']
+            )
+            html_content = f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{html.escape(chart_profile['title'])}</title>
+    <style>
+        :root {{
+            --bg-1: #0f172a;
+            --bg-2: #111827;
+            --card: rgba(255, 255, 255, 0.92);
+            --card-border: rgba(148, 163, 184, 0.2);
+            --text-main: #e5eefb;
+            --text-soft: rgba(229, 238, 251, 0.78);
+            --accent: #38bdf8;
+            --accent-2: #60a5fa;
+        }}
+        * {{ box-sizing: border-box; }}
+        body {{
+            margin: 0;
+            font-family: "Microsoft YaHei", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+            color: var(--text-main);
+            background:
+                radial-gradient(circle at top left, rgba(56, 189, 248, 0.24), transparent 30%),
+                radial-gradient(circle at top right, rgba(96, 165, 250, 0.20), transparent 28%),
+                linear-gradient(160deg, var(--bg-1), var(--bg-2));
+            min-height: 100vh;
+        }}
+        .shell {{ max-width: 1440px; margin: 0 auto; padding: 28px 20px 36px; }}
+        .hero {{
+            display: grid;
+            grid-template-columns: 1.8fr 1fr;
+            gap: 16px;
+            align-items: stretch;
+            margin-bottom: 18px;
+        }}
+        .hero-card, .summary-card, .chart-card {{
+            background: var(--card);
+            color: #0f172a;
+            border: 1px solid var(--card-border);
+            border-radius: 22px;
+            box-shadow: 0 28px 80px rgba(15, 23, 42, 0.28);
+            overflow: hidden;
+        }}
+        .hero-card {{ padding: 26px 28px; position: relative; }}
+        .badge {{
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 14px;
+            border-radius: 999px;
+            background: rgba(56, 189, 248, 0.12);
+            color: #0369a1;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
+        }}
+        h1 {{ margin: 16px 0 8px; font-size: 30px; line-height: 1.2; }}
+        .subtitle {{ margin: 0; color: #334155; font-size: 15px; line-height: 1.7; }}
+        .meta-grid {{
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+            margin-top: 20px;
+        }}
+        .meta-item {{
+            padding: 14px 16px;
+            border-radius: 16px;
+            background: linear-gradient(180deg, #f8fbff 0%, #eef6ff 100%);
+            border: 1px solid rgba(96, 165, 250, 0.18);
+        }}
+        .meta-label {{ font-size: 12px; color: #64748b; margin-bottom: 6px; }}
+        .meta-value {{ font-size: 14px; font-weight: 700; color: #0f172a; }}
+        .summary-card {{ padding: 18px 20px; }}
+        .summary-card h2, .chart-card h2 {{ margin: 0 0 10px; font-size: 18px; color: #0f172a; }}
+        .summary-card p {{ margin: 0 0 14px; color: #334155; line-height: 1.8; }}
+        .highlight-list {{ display: flex; flex-wrap: wrap; gap: 10px; }}
+        .highlight-card {{
+            padding: 10px 14px;
+            border-radius: 999px;
+            background: linear-gradient(135deg, rgba(56, 189, 248, 0.14), rgba(96, 165, 250, 0.14));
+            border: 1px solid rgba(59, 130, 246, 0.16);
+            color: #0f172a;
+            font-size: 13px;
+            font-weight: 600;
+        }}
+        .content {{
+            display: grid;
+            grid-template-columns: minmax(0, 1.9fr) minmax(300px, 0.9fr);
+            gap: 16px;
+            align-items: start;
+        }}
+        .chart-card {{ padding: 14px; }}
+        .chart-card .plotly-graph-div {{ width: 100% !important; }}
+        .notes {{ padding: 18px 20px; }}
+        .notes ul {{ margin: 0; padding-left: 18px; color: #334155; line-height: 1.8; }}
+        .notes li + li {{ margin-top: 6px; }}
+        .footer {{ margin-top: 16px; color: var(--text-soft); font-size: 12px; text-align: center; }}
+        @media (max-width: 1080px) {{
+            .hero, .content {{ grid-template-columns: 1fr; }}
+            .meta-grid {{ grid-template-columns: 1fr; }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="shell">
+        <section class="hero">
+            <div class="hero-card">
+                <div class="badge">Interactive HTML Report</div>
+                <h1>{html.escape(chart_profile['title'])}</h1>
+                <p class="subtitle">{html.escape(chart_profile['subtitle'])}</p>
+                <div class="meta-grid">
+                    <div class="meta-item">
+                        <div class="meta-label">输出格式</div>
+                        <div class="meta-value">HTML 交互版</div>
+                    </div>
+                    <div class="meta-item">
+                        <div class="meta-label">查看方式</div>
+                        <div class="meta-value">可缩放、悬停、拖动</div>
+                    </div>
+                    <div class="meta-item">
+                        <div class="meta-label">浏览建议</div>
+                        <div class="meta-value">适合桌面浏览器打开</div>
+                    </div>
+                </div>
+            </div>
+            <aside class="summary-card">
+                <h2>阅读提示</h2>
+                <p>{html.escape(chart_profile['summary'])}</p>
+                <div class="highlight-list">{highlight_cards}</div>
+            </aside>
+        </section>
+
+        <section class="content">
+            <div class="chart-card">
+                {plotly_html}
+            </div>
+            <aside class="summary-card notes">
+                <h2>如何解读</h2>
+                <ul>
+                    <li>先看图例和数值峰值，再看相邻节点之间的变化趋势。</li>
+                    <li>将鼠标悬停在数据点上，可查看更完整的上下文信息。</li>
+                    <li>如果图表数据较少，建议结合会议摘要一起理解。</li>
+                </ul>
+            </aside>
+        </section>
+
+        <div class="footer">智能会议助手系统 · 可视化报告</div>
+    </div>
+</body>
+</html>"""
+
+            with open(filepath, 'w', encoding='utf-8') as file_handle:
+                file_handle.write(html_content)
         else:
             filepath = os.path.join(output_dir, f"{filename}.{format}")
             fig.write_image(filepath)
