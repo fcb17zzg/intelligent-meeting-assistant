@@ -892,20 +892,12 @@ async def get_meeting_summary(
 
     summary_text = (meeting.summary or "").strip()
     summary_type = (meeting.summary_type or "").strip()
-    summary_data_cache = None
+
+    # 读取接口不再触发 LLM 重新生成，避免前端每次打开摘要都等待远程调用。
+    # 如果数据库里还没有摘要，只做一个快速的本地降级输出，不写回数据库。
     if not summary_text and transcript_text:
-        summary_data = _generate_summary_payload(transcript_text, meeting.duration)
-        summary_data_cache = summary_data
-        summary_text = summary_data.get("summary", "") or _summarize_extractive(transcript_text, max_sentences=4)
-        summary_type = summary_data.get("summary_type", "extractive")
-        meeting.summary = summary_text
-        meeting.summary_type = summary_type
-        if not meeting.key_topics and summary_data.get("key_topics"):
-            meeting.key_topics = json.dumps(summary_data.get("key_topics", []), ensure_ascii=False)
-        meeting.updated_at = datetime.utcnow()
-        db.add(meeting)
-        db.commit()
-        db.refresh(meeting)
+        summary_text = _summarize_extractive(transcript_text, max_sentences=4)
+        summary_type = "extractive"
 
     key_topics: list[str] = []
     key_topic_details: list[dict] = []
@@ -943,15 +935,6 @@ async def get_meeting_summary(
         key_topic_details = _fallback_topics_from_text(transcript_text, max_topics=5)
         key_topics = [item["name"] for item in key_topic_details]
 
-    # 默认不在每次 GET 时重复触发高开销 LLM 结构化分析。
-    # 仅在显式 refresh_analysis 或当前请求已生成新摘要时才执行。
-    if summary_data_cache is None and transcript_text and refresh_analysis:
-        try:
-            summary_data_cache = _generate_summary_payload(transcript_text, meeting.duration)
-        except Exception as exc:
-            logger.warning(f"补充摘要结构化字段失败，使用默认空值: {exc}")
-            summary_data_cache = {}
-
     # 决策/未解决问题的自动抽取在当前数据质量下误报较多，暂时停用。
     decisions: list[str] = []
     open_issues: list[str] = []
@@ -973,14 +956,6 @@ async def get_meeting_summary(
         for task in persisted_tasks
         if str(task.description or task.title or "").strip()
     ][:20]
-
-    # 只有在没有已持久化任务时，才回退到从全文实时抽取，避免每次查询重复高开销计算。
-    if not action_items and transcript_text and refresh_analysis:
-        try:
-            action_items = _extract_action_items(transcript_text)
-        except Exception as action_error:
-            logger.warning(f"实时行动项抽取失败，返回空列表: {action_error}")
-            action_items = []
 
     if not key_topic_details:
         key_topic_details = _fallback_topics_from_action_items(action_items, max_topics=5)
@@ -1165,15 +1140,34 @@ async def transcribe_meeting(
 
         meeting.transcript_raw = transcript_raw
         meeting.transcript_formatted = transcript_formatted
-        meeting.summary = None
-        meeting.summary_type = None
-        meeting.key_topics = None
         meeting.duration = transcription_result.get("duration") or meeting.duration
         meeting.status = MeetingStatus.COMPLETED
         meeting.updated_at = datetime.utcnow()
         db.add(meeting)
         db.commit()
         db.refresh(meeting)
+
+        # 转录完成后同步生成并持久化摘要与行动项，保证后续读取直接命中数据库。
+        try:
+            summary_data = _generate_summary_payload(transcript_formatted or transcript_raw, meeting.duration)
+            meeting.summary = str(summary_data.get("summary", "") or "").strip()
+            meeting.summary_type = summary_data.get("summary_type", "extractive")
+            if summary_data.get("key_topics"):
+                meeting.key_topics = json.dumps(summary_data.get("key_topics", []), ensure_ascii=False)
+            meeting.updated_at = datetime.utcnow()
+            db.add(meeting)
+            db.commit()
+            db.refresh(meeting)
+
+            action_items = _extract_action_items(transcript_formatted or transcript_raw)
+            _persist_action_items(db, meeting_id, action_items)
+            db.commit()
+            logger.info(
+                f"转录后摘要与行动项已持久化: meeting_id={meeting_id}, summary_type={meeting.summary_type}, action_items={len(action_items)}"
+            )
+        except Exception as analysis_error:
+            db.rollback()
+            logger.warning(f"转录后摘要/行动项生成失败: meeting_id={meeting_id}, error={analysis_error}", exc_info=True)
     except HTTPException:
         raise
     except Exception as exc:

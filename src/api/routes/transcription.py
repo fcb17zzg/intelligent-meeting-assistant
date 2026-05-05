@@ -3,6 +3,7 @@
 集成音频处理和NLP分析
 """
 import logging
+import json
 import asyncio
 from datetime import datetime
 from typing import Optional, List
@@ -247,7 +248,7 @@ async def summarize_transcription(
     db: Session = Depends(get_db),
 ):
     """
-    对转录文本生成摘要
+    对转录文本生成摘要，并立即持久化到 Meeting 表（若存在）
     """
     try:
         # 如果未提供文本，从数据库中的 Meeting 表尝试读取
@@ -265,6 +266,30 @@ async def summarize_transcription(
 
         summarizer = MeetingSummarizer(config={})
         result = summarizer.generate_summary(text, duration=0)
+
+        # 若数据库中有 Meeting 记录，立即持久化摘要（不需要后台任务）
+        meeting = None
+        try:
+            from models import Meeting
+            meeting = db.query(Meeting).filter(Meeting.id == transcription_id).first()
+        except Exception:
+            meeting = None
+
+        if meeting:
+            try:
+                meeting.summary = str(result.get("summary", "") or "").strip()
+                meeting.summary_type = result.get("summary_type") or "extractive"
+                if result.get("key_topics"):
+                    import json
+                    meeting.key_topics = json.dumps(result.get("key_topics", []), ensure_ascii=False)
+                from datetime import datetime
+                meeting.updated_at = datetime.utcnow()
+                db.add(meeting)
+                db.commit()
+                db.refresh(meeting)
+            except Exception as exc:
+                db.rollback()
+                logger.warning(f"摘要持久化失败: {exc}")
 
         return {
             "transcription_id": transcription_id,

@@ -25,7 +25,14 @@ class MeetingSummarizer:
     def generate_summary(self, formatted_text: str, duration: float) -> Dict[str, Any]:
         """生成会议摘要"""
         prompt = self._create_summary_prompt(formatted_text, duration)
-        
+        # 打印/记录将要发送给 LLM 的转录文本，便于调试与核对
+        try:
+            logger.info("发送给LLM的转录文本长度: %d 字符", len(formatted_text or ""))
+            logger.info("发送给LLM的转录文本内容:\n%s", formatted_text or "")
+        except Exception:
+            # 记录失败不影响主流程
+            logger.debug("记录转录文本时发生异常，但继续执行摘要生成")
+
         try:
             if not self.llm_client:
                 raise RuntimeError("LLM client unavailable")
